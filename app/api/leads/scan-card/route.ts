@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireApiUser } from '@/lib/session'
 import { checkRateLimit } from '@/lib/rateLimit'
 import { recognizeCardText } from '@/lib/cardScan/visionOcr'
+import { extractCardEntities } from '@/lib/cardScan/entityExtraction'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,9 +48,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Image too large (max 8MB).' }, { status: 413 })
   }
 
+  let text: string
   try {
-    const result = await recognizeCardText(bytes)
-    return NextResponse.json({ text: result.text })
+    text = (await recognizeCardText(bytes)).text
   } catch (err) {
     console.error('scan-card OCR failed:', err)
     return NextResponse.json(
@@ -57,4 +58,18 @@ export async function POST(req: Request) {
       { status: 502 },
     )
   }
+
+  // Best-effort: a stronger model for company/contact-name extraction than
+  // the client's on-device NER manages on short, fragmented card text (see
+  // lib/cardScan/entityExtraction.ts). Never fails the whole scan if this
+  // one call errors (quota, transient network) — the client still has the
+  // OCR text and falls back to its own on-device extraction over it.
+  let entities: { company?: string; poc?: string } = {}
+  try {
+    entities = await extractCardEntities(text)
+  } catch (err) {
+    console.error('scan-card entity extraction failed, falling back to on-device NER:', err)
+  }
+
+  return NextResponse.json({ text, entities })
 }

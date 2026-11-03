@@ -115,12 +115,18 @@ export function NewLeadDialog({
   // Scan path: QR/barcode decoding happens on-device first (lib/cardScan/
   // decodeQr.ts — instant, no network call), then the photo goes to
   // Cloud Vision OCR server-side (/api/leads/scan-card) for the printed
-  // text, which gets run through the same extractLeadFields() the paste-
-  // text flow above already uses, plus the new extractLinks(). Every
-  // result merges into form state the same "only fill empty fields" way
-  // handleExtract already does — this is a second way to trigger the same
-  // merge-fill behavior, not a parallel/competing code path. Never
-  // auto-submits: the rep still reviews every field before saving.
+  // text. That route also runs the OCR text through Cloud Natural
+  // Language's entity extraction server-side (lib/cardScan/
+  // entityExtraction.ts) — the on-device NER model (used below as a
+  // fallback, and still what the paste-text flow above uses) is noticeably
+  // weaker on short, fragmented card text than a full sentence, so prefer
+  // Google's company/POC result when the server provided one. extractLinks()
+  // still runs client-side either way — no server equivalent needed for
+  // pure regex URL matching. Every result merges into form state the same
+  // "only fill empty fields" way handleExtract already does — this is a
+  // second way to trigger the same merge-fill behavior, not a parallel/
+  // competing code path. Never auto-submits: the rep still reviews every
+  // field before saving.
   async function handleScanCard(file: File) {
     setScanning(true)
     setScanError(null)
@@ -128,6 +134,7 @@ export function NewLeadDialog({
       const qr = await decodeCardQr(file)
 
       let ocrText = ''
+      let serverEntities: { company?: string; poc?: string } = {}
       try {
         const res = await fetch('/api/leads/scan-card', {
           method: 'POST',
@@ -137,7 +144,7 @@ export function NewLeadDialog({
         if (res.ok) {
           const data = await res.json()
           ocrText = data.text ?? ''
-          console.log('[scan-card debug] OCR text:', JSON.stringify(ocrText))
+          serverEntities = data.entities ?? {}
         } else if (!qr) {
           // Only surface the OCR failure if the QR path also found nothing
           // — a card with a working QR code still fills useful fields even
@@ -150,13 +157,12 @@ export function NewLeadDialog({
       }
 
       const extracted = ocrText ? await extractLeadFields(ocrText) : {}
-      console.log('[scan-card debug] extracted fields:', JSON.stringify(extracted))
       const links = ocrText ? extractLinks(ocrText) : { other: [] }
 
       setForm((prev) => ({
         ...prev,
-        company: qr?.vcard?.company || extracted.company || prev.company,
-        poc: qr?.vcard?.name || extracted.poc || prev.poc,
+        company: qr?.vcard?.company || serverEntities.company || extracted.company || prev.company,
+        poc: qr?.vcard?.name || serverEntities.poc || extracted.poc || prev.poc,
         email: qr?.vcard?.email || extracted.email || prev.email,
         phone: qr?.vcard?.phone || extracted.phone || prev.phone,
         linkedinUrl: links.linkedin || prev.linkedinUrl,

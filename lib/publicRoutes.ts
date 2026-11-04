@@ -15,7 +15,7 @@
 // cookie for. A crafted `/login?from=/rep/acme` link, or any other code path
 // that builds a callbackURL from user input, must never resolve to one of
 // these — see isSafeRedirectTarget below.
-const PUBLIC_PATH_PREFIXES = ['/invite/redeem', '/signup', '/rep', '/intake'] as const
+const PUBLIC_PATH_PREFIXES = ['/invite/redeem', '/signup', '/rep', '/intake', '/reset-password'] as const
 
 export function isPublicPathPrefix(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))

@@ -7,6 +7,7 @@ import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { STAGES, STAGE_LABELS, STAGE_DESCRIPTIONS, SOURCES, SOURCE_LABELS } from '@/lib/types'
 import { OrganisationPanel } from '@/components/settings/OrganisationPanel'
 import { EmailSettingsCard } from '@/components/settings/EmailSettingsCard'
+import { SetPasswordCard } from '@/components/settings/SetPasswordCard'
 import { OrgEmailSettingsCard } from '@/components/settings/OrgEmailSettingsCard'
 import { OrgSheetConnectorCard } from '@/components/settings/OrgSheetConnectorCard'
 import { LeadIntakeFormsCard } from '@/components/settings/LeadIntakeFormsCard'
@@ -94,6 +95,7 @@ export function SettingsTabs({
       </TabsList>
 
       <TabsContent value="general" className="space-y-6 pt-2">
+        <SetPasswordCard />
         <EmailSettingsCard />
         {isAdminUser && <OrgEmailSettingsCard />}
       </TabsContent>

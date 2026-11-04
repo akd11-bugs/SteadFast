@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 import { resolveVisibleOrgIds, type SessionUser } from '@/lib/session'
+import { BRAND_NAME } from '@/lib/branding'
 
 const COOKIE_NAME = 'rep_session'
 const MAX_AGE_SECONDS = 10 * 60 * 60 // 10h
@@ -77,5 +78,20 @@ export async function getRepSessionUser(): Promise<SessionUser | null> {
   if (!user || !user.isActive || !user.pinHash) return null
 
   const visibleOrgIds = resolveVisibleOrgIds(user.orgId)
-  return { id: user.id, name: user.name, email: user.email, role: user.role, orgId: user.orgId, visibleOrgIds }
+  // Rep sessions are only ever consumed by API routes (lib/session.ts's
+  // own doc comment above), never rendered through Sidebar/TopBar — org
+  // branding fields are irrelevant here, so they're left at their defaults
+  // rather than spending an extra Organization query on every rep request.
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    orgId: user.orgId,
+    visibleOrgIds,
+    orgName: BRAND_NAME,
+    orgLogoUrl: null,
+    orgLogoDataUrl: null,
+    orgBrandColor: null,
+  }
 }

@@ -21,7 +21,6 @@ import {
 import { cn } from '@/lib/utils'
 import type { SessionUser } from '@/lib/session'
 import { OrgLogo } from '@/components/branding/OrgLogo'
-import { BRAND_NAME } from '@/lib/branding'
 
 // Per-browser UI preference, not tenant data — localStorage is the right
 // home for it (no existing convention for this in the app; first use).
@@ -71,8 +70,8 @@ export function Sidebar({ user }: { user: SessionUser }) {
     >
       <div className="flex h-14 items-center justify-between border-b px-4">
         <Link href="/" className={cn('flex items-center gap-2 font-semibold overflow-hidden', collapsed && 'gap-0')}>
-          <OrgLogo org={{ name: BRAND_NAME }} size={24} />
-          {!collapsed && <span className="text-base tracking-tight whitespace-nowrap">{BRAND_NAME}</span>}
+          <OrgLogo org={{ name: user.orgName, logoUrl: user.orgLogoUrl, logoDataUrl: user.orgLogoDataUrl }} size={24} />
+          {!collapsed && <span className="text-base tracking-tight whitespace-nowrap">{user.orgName}</span>}
         </Link>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4 text-sm overflow-x-hidden">

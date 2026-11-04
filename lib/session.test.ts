@@ -10,7 +10,19 @@ vi.mock('@/lib/auth', () => ({ neonAuth: { getSession: vi.fn() } }))
 const { resolveVisibleOrgIds, leadScope } = await import('@/lib/session')
 
 function user(overrides: Partial<{ id: string; orgId: string; role: string; visibleOrgIds: string[] }> = {}) {
-  return { id: 'u1', name: 'Test', email: 't@x.com', orgId: 'org-a', role: 'sales', visibleOrgIds: ['org-a'], ...overrides }
+  return {
+    id: 'u1',
+    name: 'Test',
+    email: 't@x.com',
+    orgId: 'org-a',
+    role: 'sales',
+    visibleOrgIds: ['org-a'],
+    orgName: 'Test Org',
+    orgLogoUrl: null,
+    orgLogoDataUrl: null,
+    orgBrandColor: null,
+    ...overrides,
+  }
 }
 
 describe('resolveVisibleOrgIds', () => {

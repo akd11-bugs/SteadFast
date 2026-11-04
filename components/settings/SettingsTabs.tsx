@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { STAGES, STAGE_LABELS, STAGE_DESCRIPTIONS, SOURCES, SOURCE_LABELS } from '@/lib/types'
 import { OrganisationPanel } from '@/components/settings/OrganisationPanel'
+import { OrgBrandingCard } from '@/components/settings/OrgBrandingCard'
 import { EmailSettingsCard } from '@/components/settings/EmailSettingsCard'
 import { SetPasswordCard } from '@/components/settings/SetPasswordCard'
 import { OrgEmailSettingsCard } from '@/components/settings/OrgEmailSettingsCard'
@@ -101,7 +102,8 @@ export function SettingsTabs({
       </TabsContent>
 
       {isAdminUser && (
-        <TabsContent value="organization" className="pt-2">
+        <TabsContent value="organization" className="space-y-6 pt-2">
+          <OrgBrandingCard />
           <OrganisationPanel
             initialUsers={users as never}
             initialInvites={invites as never}

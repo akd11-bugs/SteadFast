@@ -6,6 +6,7 @@ import { neonAuth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import type { User } from '@prisma/client'
 import { DEV_BYPASS_COOKIE } from '@/lib/devBypass'
+import { BRAND_NAME } from '@/lib/branding'
 
 export { DEV_BYPASS_COOKIE }
 
@@ -19,14 +20,38 @@ export interface SessionUser {
   // Kept as an array (rather than inlining orgId everywhere) so leadScope()
   // below didn't need to change shape when hierarchy was removed.
   visibleOrgIds: string[]
+  // The signed-in user's own org name/logo/accent — see
+  // components/branding/OrgLogo.tsx, the single place that renders these.
+  // orgName falls back to the global NEXT_PUBLIC_BRAND_NAME (lib/branding.ts)
+  // for an org that hasn't set its own name yet, same precedence OrgLogo
+  // already uses for the logo itself.
+  orgName: string
+  orgLogoUrl: string | null
+  orgLogoDataUrl: string | null
+  orgBrandColor: string | null
 }
 
 export function resolveVisibleOrgIds(orgId: string): string[] {
   return [orgId]
 }
 
+// React cache()'d per-request like resolveSession() above — every
+// requireUser()/requireAnyUser() call in the same request tree (layout,
+// page, nested Server Components) shares this one Organization lookup
+// rather than re-querying it per caller.
 const hydrate = cache(async (user: Pick<User, 'id' | 'name' | 'email' | 'role' | 'orgId'>): Promise<SessionUser> => {
-  return { ...user, visibleOrgIds: resolveVisibleOrgIds(user.orgId) }
+  const org = await prisma.organization.findUnique({
+    where: { id: user.orgId },
+    select: { name: true, logoUrl: true, logoDataUrl: true, brandColor: true },
+  })
+  return {
+    ...user,
+    visibleOrgIds: resolveVisibleOrgIds(user.orgId),
+    orgName: org?.name || BRAND_NAME,
+    orgLogoUrl: org?.logoUrl ?? null,
+    orgLogoDataUrl: org?.logoDataUrl ?? null,
+    orgBrandColor: org?.brandColor ?? null,
+  }
 })
 
 type SessionResolution =

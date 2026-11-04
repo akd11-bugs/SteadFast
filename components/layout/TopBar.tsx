@@ -10,7 +10,6 @@ import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import { ImportLeadsDialog } from '@/components/leads/ImportLeadsDialog'
 import type { SessionUser } from '@/lib/session'
 import { OrgLogo } from '@/components/branding/OrgLogo'
-import { BRAND_NAME } from '@/lib/branding'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
 
 interface CompanyResult {
@@ -94,8 +93,8 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 md:px-6 backdrop-blur">
       <div className="md:hidden flex items-center gap-2 font-semibold">
-        <OrgLogo org={{ name: BRAND_NAME }} size={20} />
-        <span className="text-sm tracking-tight">{BRAND_NAME}</span>
+        <OrgLogo org={{ name: user.orgName, logoUrl: user.orgLogoUrl, logoDataUrl: user.orgLogoDataUrl }} size={20} />
+        <span className="text-sm tracking-tight">{user.orgName}</span>
       </div>
       <div className="flex-1 max-w-xl relative" ref={containerRef}>
         <div className="relative">

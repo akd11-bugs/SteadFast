@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Dialog,
@@ -51,10 +51,19 @@ export function NewLeadDialog({
   children,
   open: openProp,
   onOpenChange,
+  autoTriggerScan = false,
 }: {
   children?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  // The TopBar's scan toggle opens this dialog wanting the camera already
+  // up, rather than making the rep find and tap "Scan card" a second time.
+  // Mobile: programmatically clicks the hidden file input (the only way to
+  // open the OS camera app from script — capture="environment" still
+  // requires a real user-gesture-triggered click). Desktop: passed through
+  // to WebcamCapture's own autoStart instead, since that path opens
+  // getUserMedia() directly with no file input involved.
+  autoTriggerScan?: boolean
 }) {
   const router = useRouter()
   const [internalOpen, setInternalOpen] = useState(false)
@@ -70,6 +79,14 @@ export function NewLeadDialog({
   const [extracting, setExtracting] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const scanInputRef = useRef<HTMLInputElement>(null)
+
+  // Fires once per open, only on mobile (the hidden file input) — desktop's
+  // WebcamCapture gets autoTriggerScan passed straight through as its own
+  // autoStart prop below instead of being driven from here.
+  useEffect(() => {
+    if (open && autoTriggerScan) scanInputRef.current?.click()
+  }, [open, autoTriggerScan])
   const [form, setForm] = useState({
     poc: '',
     company: '',
@@ -307,6 +324,7 @@ export function NewLeadDialog({
                   {scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanLine className="h-3.5 w-3.5" />}
                   {scanning ? 'Reading card…' : 'Scan card'}
                   <input
+                    ref={scanInputRef}
                     type="file"
                     accept="image/*"
                     capture="environment"
@@ -333,7 +351,7 @@ export function NewLeadDialog({
               <ScanLine className="h-3.5 w-3.5" />
               Scan a business card with your webcam to auto-fill the fields below
             </Label>
-            <WebcamCapture disabled={scanning} onCapture={handleScanCard} />
+            <WebcamCapture disabled={scanning} onCapture={handleScanCard} autoStart={autoTriggerScan} />
             {scanError && <p className="text-xs text-destructive">{scanError}</p>}
           </div>
           <div className="grid grid-cols-2 gap-3">

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Plus, Building2, User as UserIcon } from 'lucide-react'
+import { Search, Plus, ScanLine, Building2, User as UserIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,7 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const [scanDialogOpen, setScanDialogOpen] = useState(false)
   const [companies, setCompanies] = useState<CompanyResult[]>([])
   const [people, setPeople] = useState<PersonResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -159,6 +160,22 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
           </div>
         )}
       </div>
+      {/* Skips the "New Lead" dialog's manual-entry view entirely — opens it
+          headlessly, straight into scan mode (see NewLeadDialog's
+          autoTriggerScan), for a rep who's already holding a card up to
+          their camera and doesn't want to tap through "New Lead" first. */}
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        className="h-9 w-9 shrink-0"
+        title="Scan a business card"
+        aria-label="Scan a business card"
+        onClick={() => setScanDialogOpen(true)}
+      >
+        <ScanLine className="h-4 w-4" />
+      </Button>
+      <NewLeadDialog open={scanDialogOpen} onOpenChange={setScanDialogOpen} autoTriggerScan />
       <div className="flex items-center gap-2">
         <ImportLeadsDialog />
         <NewLeadDialog>

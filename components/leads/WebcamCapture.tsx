@@ -7,6 +7,10 @@ import { Camera, X } from 'lucide-react'
 interface WebcamCaptureProps {
   onCapture: (file: File) => void
   disabled?: boolean
+  // Opens the camera stream immediately on mount instead of waiting for the
+  // "Use webcam" click — for the TopBar's scan toggle (see NewLeadDialog's
+  // autoTriggerScan), which wants the dialog to land straight in scan mode.
+  autoStart?: boolean
 }
 
 // Desktop counterpart to NewLeadDialog's mobile file-input capture path.
@@ -16,7 +20,7 @@ interface WebcamCaptureProps {
 // opens an in-page getUserMedia() stream instead, inline rather than in a
 // nested Dialog (Radix doesn't compose two Dialog.Root focus traps cleanly).
 // Needs next.config.mjs's Permissions-Policy to allow camera=(self).
-export function WebcamCapture({ onCapture, disabled }: WebcamCaptureProps) {
+export function WebcamCapture({ onCapture, disabled, autoStart }: WebcamCaptureProps) {
   const [active, setActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -47,6 +51,11 @@ export function WebcamCapture({ onCapture, disabled }: WebcamCaptureProps) {
       videoRef.current.srcObject = streamRef.current
     }
   }, [active])
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount only, not on every `start` identity change
+  useEffect(() => {
+    if (autoStart) start()
+  }, [])
 
   // Stop the camera if the dialog/component unmounts while active — a live
   // stream left running after the user navigates away is a real privacy

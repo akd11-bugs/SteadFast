@@ -4,8 +4,17 @@ import { prisma } from '@/lib/db'
 import { requireApiUser, isAdmin } from '@/lib/session'
 import { readJsonBody } from '@/lib/http'
 import { getSheetRows } from '@/lib/googleSheets'
+import { checkRateLimit } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
+
+// Legitimate use is "an admin sets this up once, rarely revisits it" — this
+// cap exists only to kill sheetId enumeration: the 409 on a sheetId another
+// org already claimed is itself a (low-severity, but real) information leak
+// ("this sheet exists and belongs to someone"), so a malicious or compromised
+// admin account shouldn't be able to probe many sheetIds quickly to map them.
+const MAX_ATTEMPTS_PER_HOUR = 20
+const WINDOW_MS = 60 * 60 * 1000
 
 // Every org shares this one deployment-wide service account (see
 // lib/googleSheets.ts) — an org admin's whole setup is sharing their sheet
@@ -30,6 +39,14 @@ export async function POST(req: Request) {
   const user = await requireApiUser()
   if (user instanceof NextResponse) return user
   if (!isAdmin(user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const rateLimit = checkRateLimit(`org-sheet-connector:${user.id}`, MAX_ATTEMPTS_PER_HOUR, WINDOW_MS)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Try again shortly.' },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+    )
+  }
 
   const serviceAccountEmail = sharedServiceAccountEmail()
   if (!serviceAccountEmail) {

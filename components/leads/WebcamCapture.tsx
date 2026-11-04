@@ -30,7 +30,10 @@ export function WebcamCapture({ onCapture, disabled, autoStart }: WebcamCaptureP
     setError(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        // 'environment' (rear/outward-facing camera) — this is for pointing
+        // the camera AT a business card, not a selfie. Falls back to
+        // whatever camera the device has on a laptop with only one.
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       })
       streamRef.current = stream
       setActive(true)

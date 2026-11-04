@@ -25,6 +25,7 @@ import {
 import { Plus, Wand2, Loader2, ScanLine, X } from 'lucide-react'
 import { extractLeadFields, extractLinks } from '@/lib/aiExtraction'
 import { decodeCardQr } from '@/lib/cardScan/decodeQr'
+import { downscaleImage } from '@/lib/cardScan/downscaleImage'
 import { WebcamCapture } from './WebcamCapture'
 import {
   SOURCES,
@@ -144,10 +145,17 @@ export function NewLeadDialog({
   // second way to trigger the same merge-fill behavior, not a parallel/
   // competing code path. Never auto-submits: the rep still reviews every
   // field before saving.
-  async function handleScanCard(file: File) {
+  async function handleScanCard(rawFile: File) {
     setScanning(true)
     setScanError(null)
     try {
+      // A phone's camera-capture file input hands back the photo at full
+      // sensor resolution (easily 3000-7000px, several MB) — downscaling
+      // once here, before either consumer sees it, is what keeps the QR
+      // decode's own pixel-buffer allocation (and the OCR upload) from
+      // being large enough to trigger a device low-memory condition on a
+      // real phone. See lib/cardScan/downscaleImage.ts.
+      const file = await downscaleImage(rawFile)
       const qr = await decodeCardQr(file)
 
       let ocrText = ''

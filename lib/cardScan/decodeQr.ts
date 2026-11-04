@@ -106,6 +106,26 @@ async function decodeRawQr(source: ImageBitmap | ImageData): Promise<string | nu
   return decodeViaJsQr(imageData)
 }
 
+// A QR code only needs enough resolution to resolve its own modules, not
+// the full photo a modern phone camera produces (commonly 3000-7000px on
+// the long edge). Decoding at full size means getImageData() below
+// allocates a raw RGBA buffer around 4 bytes/pixel — tens to low hundreds
+// of MB for a single frame — on every scan, even though most cards have no
+// QR code at all and that allocation finds nothing. This cap keeps that
+// buffer small regardless of the source photo's resolution.
+const MAX_QR_DECODE_DIMENSION = 1200
+
+async function downscaleForDecode(bitmap: ImageBitmap): Promise<ImageBitmap> {
+  const scale = Math.min(1, MAX_QR_DECODE_DIMENSION / Math.max(bitmap.width, bitmap.height))
+  if (scale >= 1) return bitmap
+  const resized = await createImageBitmap(bitmap, {
+    resizeWidth: Math.round(bitmap.width * scale),
+    resizeHeight: Math.round(bitmap.height * scale),
+  })
+  bitmap.close()
+  return resized
+}
+
 /**
  * Decodes a single captured card photo (a File/Blob from the camera-capture
  * file input) for a QR/barcode payload. Returns null if none is found —
@@ -113,8 +133,10 @@ async function decodeRawQr(source: ImageBitmap | ImageData): Promise<string | nu
  * not an error.
  */
 export async function decodeCardQr(photo: Blob): Promise<DecodedQr | null> {
-  const bitmap = await createImageBitmap(photo)
+  const fullSize = await createImageBitmap(photo)
+  const bitmap = await downscaleForDecode(fullSize)
   const raw = await decodeRawQr(bitmap)
+  bitmap.close()
   if (!raw) return null
 
   if (/^BEGIN:VCARD/i.test(raw.trim())) {

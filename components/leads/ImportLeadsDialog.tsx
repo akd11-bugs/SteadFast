@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Upload, Loader2, CheckCircle2 } from 'lucide-react'
-import { FIELDS, FIELD_LABELS, autoMapHeaders, type Field } from '@/lib/headerMapping'
+import { FIELDS, FIELD_LABELS, autoMapHeaders, autoMapCustomFields, type Field } from '@/lib/headerMapping'
+import { useLeadFieldDefinitions } from '@/lib/hooks/usePipelineConfig'
 
 // Client-side only: the file is parsed in the browser (via xlsx/SheetJS) and
 // never uploaded raw — only the already-mapped row objects are sent to the
@@ -37,13 +38,20 @@ interface ParsedFile {
 interface ImportResult {
   created: number
   skipped: { row: number; reason: string }[]
+  customFieldWarnings: { row: number; reason: string }[]
 }
 
 export function ImportLeadsDialog() {
   const router = useRouter()
+  const { fields: customFieldDefs } = useLeadFieldDefinitions()
   const [open, setOpen] = useState(false)
   const [parsed, setParsed] = useState<ParsedFile | null>(null)
   const [mapping, setMapping] = useState<Record<Field, string | null> | null>(null)
+  // Leftover columns matched against the org's own admin-defined custom
+  // fields (Settings -> Pipeline -> Custom fields) — e.g. a "Location"
+  // column lands here instead of being silently dropped, as long as a
+  // custom field with a matching label/key already exists.
+  const [customFieldMapping, setCustomFieldMapping] = useState<Record<string, string | null> | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
@@ -51,6 +59,7 @@ export function ImportLeadsDialog() {
   function reset() {
     setParsed(null)
     setMapping(null)
+    setCustomFieldMapping(null)
     setParseError(null)
     setResult(null)
   }
@@ -68,7 +77,9 @@ export function ImportLeadsDialog() {
       }
       const headers = Object.keys(rows[0])
       setParsed({ headers, rows })
-      setMapping(autoMapHeaders(headers))
+      const claimed = new Set<number>()
+      setMapping(autoMapHeaders(headers, claimed))
+      setCustomFieldMapping(autoMapCustomFields(headers, customFieldDefs, claimed))
     } catch (err) {
       setParseError(err instanceof Error ? err.message : 'Could not read that file.')
     }
@@ -81,6 +92,17 @@ export function ImportLeadsDialog() {
       for (const field of FIELDS) {
         const header = mapping[field]
         out[field] = header ? row[header] : ''
+      }
+      if (customFieldMapping) {
+        const customFields: Record<string, unknown> = {}
+        for (const def of customFieldDefs) {
+          const header = customFieldMapping[def.key]
+          if (!header) continue
+          const raw = row[header]
+          if (raw === '' || raw == null) continue
+          customFields[def.key] = def.type === 'number' ? Number(raw) : String(raw)
+        }
+        if (Object.keys(customFields).length > 0) out.customFields = customFields
       }
       return out
     })
@@ -153,6 +175,18 @@ export function ImportLeadsDialog() {
                 ))}
               </div>
             )}
+            {result.customFieldWarnings.length > 0 && (
+              <div className="max-h-40 overflow-y-auto rounded-md border p-2 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">
+                  {result.customFieldWarnings.length} lead(s) created without their custom field value:
+                </p>
+                {result.customFieldWarnings.map((s, i) => (
+                  <p key={i}>
+                    Row {s.row}: {s.reason}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         ) : !parsed ? (
           <div className="space-y-2">
@@ -195,6 +229,37 @@ export function ImportLeadsDialog() {
                 </div>
               ))}
             </div>
+
+            {customFieldDefs.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Custom fields</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {customFieldDefs.map((def) => (
+                    <div key={def.key} className="space-y-1 min-w-0">
+                      <label className="text-xs font-medium text-muted-foreground">{def.label}</label>
+                      <Select
+                        value={customFieldMapping?.[def.key] ?? NONE}
+                        onValueChange={(v) =>
+                          setCustomFieldMapping((m) => (m ? { ...m, [def.key]: v === NONE ? null : v } : m))
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE}>— none —</SelectItem>
+                          {parsed.headers.map((h) => (
+                            <SelectItem key={h} value={h}>
+                              {h}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <p className="text-xs font-medium">

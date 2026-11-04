@@ -9,6 +9,7 @@ const orgSheetConnectorUpdateMock = vi.fn()
 const getSheetRowsMock = vi.fn()
 const importLeadRowsMock = vi.fn()
 const recordJobRunMock = vi.fn()
+const leadFieldDefinitionFindManyMock = vi.fn()
 
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -23,6 +24,9 @@ vi.mock('@/lib/db', () => ({
     orgSheetConnector: {
       findMany: (...args: unknown[]) => orgSheetConnectorFindManyMock(...args),
       update: (...args: unknown[]) => orgSheetConnectorUpdateMock(...args),
+    },
+    leadFieldDefinition: {
+      findMany: (...args: unknown[]) => leadFieldDefinitionFindManyMock(...args),
     },
   },
 }))
@@ -63,15 +67,17 @@ beforeEach(() => {
   getSheetRowsMock.mockReset()
   importLeadRowsMock.mockReset()
   recordJobRunMock.mockReset()
+  leadFieldDefinitionFindManyMock.mockReset()
 
   userFindManyMock.mockResolvedValue([{ id: 'org-a-owner', name: 'Org A Owner' }])
   cursorFindUniqueMock.mockResolvedValue(null)
   cursorUpsertMock.mockResolvedValue({})
+  leadFieldDefinitionFindManyMock.mockResolvedValue([])
   orgSheetConnectorFindManyMock.mockResolvedValue([
     { orgId: 'org-a', sheetId: 'org-a-sheet', sheetRange: 'Leads', defaultOwnerUserId: 'org-a-owner' },
   ])
   orgSheetConnectorUpdateMock.mockResolvedValue({})
-  importLeadRowsMock.mockResolvedValue({ created: 0, skipped: [] })
+  importLeadRowsMock.mockResolvedValue({ created: 0, skipped: [], customFieldWarnings: [] })
   recordJobRunMock.mockResolvedValue(undefined)
 })
 
@@ -110,7 +116,7 @@ describe('POST /api/cron/sync-leads-sheet', () => {
     getSheetRowsMock.mockResolvedValue([['Company', 'Email']])
     const res = await POST(req('test-key'))
     const body = await res.json()
-    expect(body.results).toEqual([{ source: 'org:org-a', created: 0, skipped: [] }])
+    expect(body.results).toEqual([{ source: 'org:org-a', created: 0, skipped: [], customFieldWarnings: [] }])
     expect(importLeadRowsMock).not.toHaveBeenCalled()
   })
 
@@ -122,7 +128,7 @@ describe('POST /api/cron/sync-leads-sheet', () => {
     cursorFindUniqueMock.mockResolvedValue({ value: '1' })
     const res = await POST(req('test-key'))
     const body = await res.json()
-    expect(body.results).toEqual([{ source: 'org:org-a', created: 0, skipped: [] }])
+    expect(body.results).toEqual([{ source: 'org:org-a', created: 0, skipped: [], customFieldWarnings: [] }])
     expect(importLeadRowsMock).not.toHaveBeenCalled()
   })
 
@@ -133,7 +139,7 @@ describe('POST /api/cron/sync-leads-sheet', () => {
       ['New Co', 'new@co.com'],
     ])
     cursorFindUniqueMock.mockResolvedValue({ value: '1' })
-    importLeadRowsMock.mockResolvedValue({ created: 1, skipped: [] })
+    importLeadRowsMock.mockResolvedValue({ created: 1, skipped: [], customFieldWarnings: [] })
 
     await POST(req('test-key'))
 
@@ -198,7 +204,7 @@ describe('POST /api/cron/sync-leads-sheet', () => {
       ['Bad Row', 'not-an-email'],
     ])
     cursorFindUniqueMock.mockResolvedValue({ value: '2' }) // first two rows already processed
-    importLeadRowsMock.mockResolvedValue({ created: 0, skipped: [{ row: 1, reason: 'Invalid email' }] })
+    importLeadRowsMock.mockResolvedValue({ created: 0, skipped: [{ row: 1, reason: 'Invalid email' }], customFieldWarnings: [] })
 
     const res = await POST(req('test-key'))
     const body = await res.json()
@@ -216,8 +222,8 @@ describe('POST /api/cron/sync-leads-sheet', () => {
     ])
     userFindFirstMock.mockResolvedValue({ id: 'rep-1', name: 'Rep One' })
     importLeadRowsMock.mockImplementation(async (rows: unknown[], owner: { id: string }) => {
-      if (owner.id === 'rep-1') return { created: 1, skipped: [] }
-      return { created: 0, skipped: [{ row: 1, reason: 'Invalid email' }] }
+      if (owner.id === 'rep-1') return { created: 1, skipped: [], customFieldWarnings: [] }
+      return { created: 0, skipped: [{ row: 1, reason: 'Invalid email' }], customFieldWarnings: [] }
     })
 
     const res = await POST(req('test-key'))
@@ -280,7 +286,7 @@ describe('POST /api/cron/sync-leads-sheet', () => {
       ['Company', 'Email'],
       ['Acme', 'a@acme.com'],
     ])
-    importLeadRowsMock.mockResolvedValue({ created: 1, skipped: [] })
+    importLeadRowsMock.mockResolvedValue({ created: 1, skipped: [], customFieldWarnings: [] })
 
     const res = await POST(req('test-key'))
     const body = await res.json()

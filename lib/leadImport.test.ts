@@ -7,6 +7,7 @@ const companyCreateMock = vi.fn()
 const personFindFirstMock = vi.fn()
 const personFindManyMock = vi.fn()
 const personCreateMock = vi.fn()
+const leadFieldDefinitionFindManyMock = vi.fn()
 
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -22,6 +23,9 @@ vi.mock('@/lib/db', () => ({
       findFirst: (...args: unknown[]) => personFindFirstMock(...args),
       findMany: (...args: unknown[]) => personFindManyMock(...args),
       create: (...args: unknown[]) => personCreateMock(...args),
+    },
+    leadFieldDefinition: {
+      findMany: (...args: unknown[]) => leadFieldDefinitionFindManyMock(...args),
     },
   },
 }))
@@ -39,9 +43,11 @@ beforeEach(() => {
   personFindFirstMock.mockReset()
   personFindManyMock.mockReset()
   personCreateMock.mockReset()
+  leadFieldDefinitionFindManyMock.mockReset()
 
   leadFindManyMock.mockResolvedValue([])
   leadCreateMock.mockResolvedValue({})
+  leadFieldDefinitionFindManyMock.mockResolvedValue([])
   // Stateful fake so repeat find-or-create calls for the same normalized name
   // within one test (e.g. "Acme Corp" then "ACME CORP") resolve to the one
   // company actually created, same as the real DB's unique constraint would.
@@ -166,5 +172,33 @@ describe('importLeadRows', () => {
   it('does not call lead.create when every row is skipped', async () => {
     await importLeadRows([{}], owner, orgId)
     expect(leadCreateMock).not.toHaveBeenCalled()
+  })
+
+  it('writes a row\'s customFields into customFieldsJson when they match a defined field', async () => {
+    leadFieldDefinitionFindManyMock.mockResolvedValue([{ key: 'location', label: 'Location', type: 'text', options: null }])
+    await importLeadRows([{ company: 'Acme', customFields: { location: 'Austin, TX' } }], owner, orgId)
+    expect(leadCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ customFieldsJson: JSON.stringify({ location: 'Austin, TX' }) }),
+    })
+  })
+
+  it('still creates the lead, with no custom fields, when a customFields value does not match its definition', async () => {
+    leadFieldDefinitionFindManyMock.mockResolvedValue([{ key: 'score', label: 'Score', type: 'number', options: null }])
+    const result = await importLeadRows([{ company: 'Acme', customFields: { score: 'not-a-number' } }], owner, orgId)
+    expect(result.created).toBe(1)
+    expect(result.customFieldWarnings).toEqual([{ row: 1, reason: '"Score" must be a number' }])
+    expect(leadCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ customFieldsJson: '{}' }),
+    })
+  })
+
+  it('drops an unrecognized customFields key silently (no matching definition)', async () => {
+    leadFieldDefinitionFindManyMock.mockResolvedValue([])
+    const result = await importLeadRows([{ company: 'Acme', customFields: { location: 'Austin, TX' } }], owner, orgId)
+    expect(result.created).toBe(1)
+    expect(result.customFieldWarnings).toEqual([])
+    expect(leadCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ customFieldsJson: '{}' }),
+    })
   })
 })

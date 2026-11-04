@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db'
 import { SOURCES, LEAD_TYPES, BUSINESS_TYPES, isValidWebsite, type LeadSource, type LeadType, type BusinessType } from '@/lib/types'
 import { normalizeCompanyName, findOrCreateCompany, findOrCreatePerson } from '@/lib/company'
+import { mergeCustomFields } from '@/lib/leadCustomFields'
 
 export interface ImportRow {
   poc?: string
@@ -14,6 +15,11 @@ export interface ImportRow {
   type?: string
   estimatedVolume?: string | number
   notes?: string
+  // Admin-defined LeadFieldDefinition values, keyed the same way
+  // CustomFieldsSection/mergeCustomFields already expect — populated by
+  // autoMapCustomFields() in the CSV dialog and the sheet-sync route when a
+  // leftover column's header matches a defined custom field's label.
+  customFields?: Record<string, unknown>
 }
 
 export interface ImportOwner {
@@ -24,6 +30,10 @@ export interface ImportOwner {
 export interface ImportResult {
   created: number
   skipped: { row: number; reason: string }[]
+  // Distinct from `skipped`: the lead itself was still created, only its
+  // custom-field values (not the fixed fields above) were dropped — e.g. a
+  // "Location" column's value didn't match that custom field's defined type.
+  customFieldWarnings: { row: number; reason: string }[]
 }
 
 function normalizeSource(value: string | undefined): LeadSource {
@@ -46,6 +56,7 @@ function normalizeBusinessType(value: string | undefined): BusinessType | null {
 // validation/dedupe/create behavior so they can never quietly drift apart.
 export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId: string): Promise<ImportResult> {
   const skipped: { row: number; reason: string }[] = []
+  const customFieldWarnings: { row: number; reason: string }[] = []
   const toCreate: {
     row: number
     poc: string | null
@@ -59,6 +70,7 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
     type: LeadType
     estimatedVolume: number
     notes: string
+    customFields: Record<string, unknown>
   }[] = []
 
   rows.forEach((rawRow, i) => {
@@ -97,6 +109,7 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
       type: normalizeType(row.type),
       estimatedVolume: Number(row.estimatedVolume) || 0,
       notes: row.notes ? String(row.notes).trim() : '',
+      customFields: typeof row.customFields === 'object' && row.customFields !== null ? row.customFields : {},
     })
   })
 
@@ -181,8 +194,20 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
     // One row at a time (not createMany) — each new Person must be
     // find-or-created, which createMany can't do inline.
     for (const r of finalRows) {
-      const { row: _row, company: _companyName, poc, companyId, ...rest } = r
+      const { row: _row, company: _companyName, poc, companyId, customFields, ...rest } = r
       const person = poc ? await findOrCreatePerson(orgId, companyId, poc) : null
+      // Best-effort, same "drop, don't fail the row" philosophy as the
+      // website/businessType handling above — a custom field whose value
+      // doesn't match its definition's type (e.g. text in a "number" field)
+      // shouldn't block the whole import row from being created.
+      let customFieldsJson = '{}'
+      if (Object.keys(customFields).length > 0) {
+        try {
+          customFieldsJson = await mergeCustomFields(orgId, '{}', customFields)
+        } catch (err) {
+          customFieldWarnings.push({ row: r.row, reason: err instanceof Error ? err.message : String(err) })
+        }
+      }
       await prisma.lead.create({
         data: {
           ...rest,
@@ -192,11 +217,13 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
           ownerName: owner.name,
           companyId,
           personId: person?.id ?? null,
+          customFieldsJson,
         },
       })
     }
   }
 
   skipped.sort((a, b) => a.row - b.row)
-  return { created: finalRows.length, skipped }
+  customFieldWarnings.sort((a, b) => a.row - b.row)
+  return { created: finalRows.length, skipped, customFieldWarnings }
 }

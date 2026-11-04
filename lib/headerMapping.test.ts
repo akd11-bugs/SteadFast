@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoMapHeaders, normalizeHeader } from '@/lib/headerMapping'
+import { autoMapHeaders, autoMapCustomFields, normalizeHeader } from '@/lib/headerMapping'
 
 describe('normalizeHeader', () => {
   it('lowercases, trims, and collapses punctuation to spaces', () => {
@@ -37,5 +37,37 @@ describe('autoMapHeaders', () => {
     const map = autoMapHeaders(['Random Column'])
     expect(map.company).toBeNull()
     expect(map.email).toBeNull()
+  })
+})
+
+describe('autoMapCustomFields', () => {
+  it('maps a leftover column to a custom field by exact label match', () => {
+    const headers = ['Company Name', 'Location']
+    const claimed = new Set<number>()
+    autoMapHeaders(headers, claimed)
+    const map = autoMapCustomFields(headers, [{ key: 'location', label: 'Location' }], claimed)
+    expect(map.location).toBe('Location')
+  })
+
+  it('matches by key when the header does not match the label exactly', () => {
+    const headers = ['location']
+    const claimed = new Set<number>()
+    const map = autoMapCustomFields(headers, [{ key: 'location', label: 'Office Location' }], claimed)
+    expect(map.location).toBe('location')
+  })
+
+  it('never re-claims a column autoMapHeaders already matched to a fixed field', () => {
+    // "Notes" is an exact synonym for the fixed `notes` field — a custom
+    // field also labeled "Notes" must not also grab it.
+    const headers = ['Notes']
+    const claimed = new Set<number>()
+    autoMapHeaders(headers, claimed)
+    const map = autoMapCustomFields(headers, [{ key: 'notes2', label: 'Notes' }], claimed)
+    expect(map.notes2).toBeNull()
+  })
+
+  it('leaves a custom field null when no column matches it', () => {
+    const map = autoMapCustomFields(['Random Column'], [{ key: 'location', label: 'Location' }], new Set())
+    expect(map.location).toBeNull()
   })
 })

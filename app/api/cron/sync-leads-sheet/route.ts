@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getSheetRows } from '@/lib/googleSheets'
-import { autoMapHeaders, normalizeHeader, FIELDS } from '@/lib/headerMapping'
+import { autoMapHeaders, autoMapCustomFields, normalizeHeader, FIELDS } from '@/lib/headerMapping'
 import { importLeadRows, type ImportOwner } from '@/lib/leadImport'
 import { safeEqual } from '@/lib/http'
 import { recordJobRun } from '@/lib/jobRun'
@@ -23,6 +23,7 @@ interface SyncResult {
   source: string
   created: number
   skipped: { row: number; reason: string }[]
+  customFieldWarnings: { row: number; reason: string }[]
   error?: string
 }
 
@@ -33,10 +34,20 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
     const allRows = await getSheetRows(source.spreadsheetId, source.range)
     if (allRows.length < 2) {
       await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'success', startedAt })
-      return { source: source.label, created: 0, skipped: [] }
+      return { source: source.label, created: 0, skipped: [], customFieldWarnings: [] }
     }
     const [headerRow, ...dataRows] = allRows
-    const mapping = autoMapHeaders(headerRow)
+    const claimed = new Set<number>()
+    const mapping = autoMapHeaders(headerRow, claimed)
+    // Whatever's left after the fixed fields above is checked against the
+    // org's own admin-defined custom fields (Settings -> Pipeline -> Custom
+    // fields) — a sheet column like "Location" lands in Lead.customFieldsJson
+    // instead of being silently dropped, as long as a matching field exists.
+    const customFieldDefs = await prisma.leadFieldDefinition.findMany({
+      where: { orgId: source.orgId },
+      select: { key: true, label: true, type: true },
+    })
+    const customFieldMapping = autoMapCustomFields(headerRow, customFieldDefs, claimed)
     const ownerColumnIndex = headerRow.findIndex((h) => {
       const normalized = normalizeHeader(h)
       return OWNER_SYNONYMS.some((s) => normalized.includes(s))
@@ -48,7 +59,7 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
 
     if (newRows.length === 0) {
       await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'success', startedAt })
-      return { source: source.label, created: 0, skipped: [] }
+      return { source: source.label, created: 0, skipped: [], customFieldWarnings: [] }
     }
 
     // Resolve each row's owner (by name/email in the Owner column, falling
@@ -84,6 +95,15 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
         const colIndex = header ? headerRow.indexOf(header) : -1
         mappedRow[field] = colIndex !== -1 ? (dataRow[colIndex] ?? '') : ''
       }
+      const customFields: Record<string, unknown> = {}
+      for (const def of customFieldDefs) {
+        const header = customFieldMapping[def.key]
+        const colIndex = header ? headerRow.indexOf(header) : -1
+        const raw = colIndex !== -1 ? dataRow[colIndex] : undefined
+        if (raw === undefined || raw === '') continue
+        customFields[def.key] = def.type === 'number' ? Number(raw) : String(raw)
+      }
+      if (Object.keys(customFields).length > 0) mappedRow.customFields = customFields
       const bucket = buckets.get(owner.id) ?? { owner, rows: [], rowNumbers: [] }
       bucket.rows.push(mappedRow)
       bucket.rowNumbers.push(alreadyProcessed + i + 1) // +1: row 1 is the header, so data row 0 is sheet row 2
@@ -92,11 +112,15 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
 
     let created = 0
     const skipped: { row: number; reason: string }[] = []
+    const customFieldWarnings: { row: number; reason: string }[] = []
     for (const { owner, rows, rowNumbers } of buckets.values()) {
       const result = await importLeadRows(rows, owner, source.orgId)
       created += result.created
       for (const s of result.skipped) {
         skipped.push({ row: rowNumbers[s.row - 1] ?? s.row, reason: s.reason })
+      }
+      for (const w of result.customFieldWarnings) {
+        customFieldWarnings.push({ row: rowNumbers[w.row - 1] ?? w.row, reason: w.reason })
       }
     }
 
@@ -109,11 +133,12 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
 
     await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'success', startedAt })
     skipped.sort((a, b) => a.row - b.row)
-    return { source: source.label, created, skipped }
+    customFieldWarnings.sort((a, b) => a.row - b.row)
+    return { source: source.label, created, skipped, customFieldWarnings }
   } catch (err) {
     await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'failure', startedAt, error: String(err) })
     console.error(`sync-leads-sheet failed (${source.label})`, err)
-    return { source: source.label, created: 0, skipped: [], error: String(err) }
+    return { source: source.label, created: 0, skipped: [], customFieldWarnings: [], error: String(err) }
   }
 }
 

@@ -50,9 +50,12 @@ export function normalizeHeader(h: string) {
   return h.toLowerCase().trim().replace(/[^a-z0-9]+/g, ' ').trim()
 }
 
-export function autoMapHeaders(headers: string[]): Record<Field, string | null> {
+// `claimedOut`, when passed, collects the indexes this function claimed —
+// autoMapCustomFields below takes that same set so it never re-grabs a
+// column the fixed fields already matched.
+export function autoMapHeaders(headers: string[], claimedOut?: Set<number>): Record<Field, string | null> {
   const normalized = headers.map(normalizeHeader)
-  const claimed = new Set<number>()
+  const claimed = claimedOut ?? new Set<number>()
   const map = {} as Record<Field, string | null>
 
   // Exact matches first, across all fields, so a field with an exact synonym hit
@@ -76,6 +79,47 @@ export function autoMapHeaders(headers: string[]): Record<Field, string | null> 
     if (idx !== -1) {
       claimed.add(idx)
       map[field] = headers[idx]
+    }
+  }
+
+  return map
+}
+
+export interface CustomFieldDef {
+  key: string
+  label: string
+}
+
+// Matches whatever columns are left over after autoMapHeaders() against an
+// org's admin-defined LeadFieldDefinitions (Settings -> Pipeline -> Custom
+// fields) by label, same exact-then-fuzzy strategy as the fixed fields above
+// — this is what makes an extra sheet column like "Location" land somewhere
+// instead of being silently dropped, as long as an admin has defined a
+// matching custom field first. `claimed` should be the same Set passed into
+// autoMapHeaders for the same header row, so a column already claimed by a
+// fixed field (e.g. "Notes") can never also be claimed here.
+export function autoMapCustomFields(headers: string[], definitions: CustomFieldDef[], claimed: Set<number>): Record<string, string | null> {
+  const normalized = headers.map(normalizeHeader)
+  const map: Record<string, string | null> = {}
+
+  for (const def of definitions) {
+    const synonyms = [normalizeHeader(def.label), normalizeHeader(def.key)]
+    const idx = normalized.findIndex((h, i) => !claimed.has(i) && synonyms.includes(h))
+    if (idx !== -1) {
+      claimed.add(idx)
+      map[def.key] = headers[idx]
+    } else {
+      map[def.key] = null
+    }
+  }
+
+  for (const def of definitions) {
+    if (map[def.key] !== null) continue
+    const synonyms = [normalizeHeader(def.label), normalizeHeader(def.key)]
+    const idx = normalized.findIndex((h, i) => !claimed.has(i) && synonyms.some((s) => h.includes(s)))
+    if (idx !== -1) {
+      claimed.add(idx)
+      map[def.key] = headers[idx]
     }
   }
 

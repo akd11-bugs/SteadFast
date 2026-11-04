@@ -4,7 +4,7 @@ import { logAudit } from '@/lib/audit'
 import { readJsonBody } from '@/lib/http'
 import { isValidEmail } from '@/lib/types'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
-import { signUpNeonAuthAccount } from '@/lib/auth'
+import { signUpNeonAuthAccount, neonAuth } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +14,17 @@ export const dynamic = 'force-dynamic'
 // (see app/api/invites/route.ts) so isn't practically brute-forceable today,
 // but there was previously nothing at all rate-limiting guesses against it —
 // this is defense-in-depth in case that entropy is ever reduced.
+//
+// Two redeemers land here:
+//  1. Invited cold (no prior sign-in) — fills in email + a new password; we
+//     create the Neon Auth credential identity ourselves (signUpNeonAuthAccount).
+//  2. Already has a live Neon Auth session from Google (the
+//     account-not-found -> request-to-join -> admin-approves path) — she
+//     already proved she owns the email via Google, and Neon Auth already
+//     has an identity for it, so calling signUp.email() again would fail
+//     ("email already exists") and she'd be stuck forever with no User row.
+//     For this case we skip password/identity creation entirely and just
+//     attach the invite's org/role to her existing identity's email.
 export async function POST(req: Request) {
   const ip = getClientIp(req)
   const rateLimit = checkRateLimit(`invite-redeem:${ip}`, 20, 15 * 60 * 1000)
@@ -27,16 +38,23 @@ export async function POST(req: Request) {
   const body = await readJsonBody(req)
   if (body instanceof NextResponse) return body
   const code = String(body.code ?? '').trim()
-  const email = String(body.email ?? '').trim().toLowerCase()
   const password = String(body.password ?? '')
 
-  if (!code || !email || !password) {
-    return NextResponse.json({ error: 'code, email, and password are required' }, { status: 400 })
+  const { data: existingSession } = await neonAuth.getSession()
+  const sessionEmail = existingSession?.user?.email?.trim().toLowerCase() || null
+
+  // A password is only required for the cold-invite path — someone who
+  // arrived here already signed in (Google) brings their own verified email
+  // and needs no password of ours.
+  const email = sessionEmail ?? String(body.email ?? '').trim().toLowerCase()
+
+  if (!code || !email) {
+    return NextResponse.json({ error: 'code and email are required' }, { status: 400 })
   }
   if (!isValidEmail(email)) {
     return NextResponse.json({ error: 'A valid email is required' }, { status: 400 })
   }
-  if (password.length < 8) {
+  if (!sessionEmail && (!password || password.length < 8)) {
     return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
   }
 
@@ -88,16 +106,21 @@ export async function POST(req: Request) {
   // Creates the actual credential identity in Neon Auth — /login's
   // email/password sign-in checks against this, not our own passwordHash
   // column (kept null from here on; Neon Auth owns password verification).
-  const signUp = await signUpNeonAuthAccount({ email, password, name: redeemerName })
-  if (!signUp.ok) {
-    // The invite was already atomically claimed above, but no account got
-    // created — release it back to 'pending' so the same code can be
-    // retried instead of being silently burned. (A no-op for a reusable
-    // link, which was never flipped to begin with.)
-    if (!invite.isReusable) {
-      await prisma.invite.update({ where: { id: invite.id }, data: { status: 'pending', redeemedAt: null } })
+  // Skipped entirely when she already has a live session (Google) — Neon
+  // Auth already has an identity for that email, so calling signUp again
+  // would just fail with "email already exists".
+  if (!sessionEmail) {
+    const signUp = await signUpNeonAuthAccount({ email, password, name: redeemerName })
+    if (!signUp.ok) {
+      // The invite was already atomically claimed above, but no account got
+      // created — release it back to 'pending' so the same code can be
+      // retried instead of being silently burned. (A no-op for a reusable
+      // link, which was never flipped to begin with.)
+      if (!invite.isReusable) {
+        await prisma.invite.update({ where: { id: invite.id }, data: { status: 'pending', redeemedAt: null } })
+      }
+      return NextResponse.json({ error: signUp.message }, { status: 409 })
     }
-    return NextResponse.json({ error: signUp.message }, { status: 409 })
   }
 
   const user = await prisma.user.create({

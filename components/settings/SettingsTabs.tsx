@@ -57,7 +57,6 @@ interface SettingsTabsProps {
   orgSlug: string | null
   users: UserRow[]
   invites: unknown[]
-  joinRequests: unknown[]
   stageDefs: StageDef[]
   stepDefs: StageDef[]
   fieldDefs: FieldDef[]
@@ -79,7 +78,6 @@ export function SettingsTabs({
   orgSlug,
   users,
   invites,
-  joinRequests,
   stageDefs,
   stepDefs,
   fieldDefs,
@@ -107,7 +105,6 @@ export function SettingsTabs({
           <OrganisationPanel
             initialUsers={users as never}
             initialInvites={invites as never}
-            initialJoinRequests={joinRequests as never}
             orgSlug={orgSlug}
           />
         </TabsContent>

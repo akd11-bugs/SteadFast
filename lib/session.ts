@@ -4,9 +4,10 @@ import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 import { neonAuth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import type { User } from '@prisma/client'
+import { Prisma, type User } from '@prisma/client'
 import { DEV_BYPASS_COOKIE } from '@/lib/devBypass'
 import { BRAND_NAME } from '@/lib/branding'
+import { findOrgByEmailDomain } from '@/lib/org'
 
 export { DEV_BYPASS_COOKIE }
 
@@ -62,12 +63,13 @@ type SessionResolution =
 
 // Neon Auth owns identity only (email/password, Google, ...) — it knows
 // nothing about role/orgId/isActive, which are our own business logic on the
-// `User` table. This looks up that row by email; it does NOT create one —
-// every account is created explicitly, either by self-serve signup (which
-// creates its own brand-new org, see app/api/signup/complete/route.ts) or
-// by an existing admin's invite/user-creation (app/api/invites/redeem,
-// app/api/users). A Neon Auth identity with no matching row means "no
-// account for this email yet," not "silently join someone else's org."
+// `User` table. This looks up that row by email, auto-creating one (as a
+// non-admin 'sales' role) the first time a verified identity's email domain
+// matches an existing org — see findOrgOwnedAutoJoin below for why that's
+// safe to do with no approval step. Anything that doesn't domain-match
+// still gets no row created here; that email lands on /account-not-found to
+// either start its own org or finish via an admin-issued invite code
+// instead.
 // Exported for app/login/page.tsx, which needs to tell 'ok' apart from
 // 'inactive'/'no-app-user' for its own "already signed in?" check — unlike
 // requireUser()/requireAnyUser() below, it must render the login form
@@ -93,6 +95,32 @@ async function resolveDevBypass(): Promise<SessionResolution | null> {
   return { kind: 'ok', user: appUser }
 }
 
+// A verified Neon Auth identity (so this is never reachable by just typing
+// an email somewhere — she already proved she owns it, via Google or a
+// password she set) whose domain matches a real, already-registered org
+// joins instantly as 'sales' — no admin approval step, since the domain
+// match is itself the authorization: anyone at that company's own email
+// domain is assumed to belong there. An admin can still change her role or
+// deactivate her afterward from Settings -> Organisation, same as anyone
+// else. Returns null (not auto-joined) for a personal-email domain or one
+// with no matching org yet.
+async function autoJoinByEmailDomain(email: string, name: string): Promise<User | null> {
+  const matchedOrg = await findOrgByEmailDomain(email)
+  if (!matchedOrg) return null
+
+  try {
+    return await prisma.user.create({
+      data: { orgId: matchedOrg.id, name: name || email, email, passwordHash: null, role: 'sales', isActive: true },
+    })
+  } catch (err) {
+    // Someone else's concurrent request (or a stale cache) won the race to
+    // create this same email — just use the row that landed, not an error.
+    const isDuplicateEmail = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+    if (!isDuplicateEmail) throw err
+    return prisma.user.findUnique({ where: { email } })
+  }
+}
+
 export const resolveSession = cache(async (): Promise<SessionResolution> => {
   const bypass = await resolveDevBypass()
   if (bypass) return bypass
@@ -101,7 +129,8 @@ export const resolveSession = cache(async (): Promise<SessionResolution> => {
   if (!data?.user?.email) return { kind: 'no-session' }
 
   const email = data.user.email.trim().toLowerCase()
-  const appUser = await prisma.user.findUnique({ where: { email } })
+  let appUser = await prisma.user.findUnique({ where: { email } })
+  if (!appUser) appUser = await autoJoinByEmailDomain(email, data.user.name ?? '')
   if (!appUser) return { kind: 'no-app-user' }
   if (!appUser.isActive) return { kind: 'inactive' }
   return { kind: 'ok', user: appUser }

@@ -35,9 +35,6 @@ export default async function SettingsPage() {
   const invites = admin
     ? await prisma.invite.findMany({ where: { orgId: { in: user.visibleOrgIds } }, orderBy: { createdAt: 'desc' } })
     : []
-  const joinRequests = admin
-    ? await prisma.joinRequest.findMany({ where: { orgId: { in: user.visibleOrgIds }, status: 'pending' }, orderBy: { createdAt: 'desc' } })
-    : []
   const [stageDefs, stepDefs, fieldDefs, pendingSubStatusDefs] = admin
     ? await Promise.all([
         getStageDefinitions(user.orgId),
@@ -81,7 +78,6 @@ export default async function SettingsPage() {
         orgSlug={org?.slug ?? null}
         users={users}
         invites={invites}
-        joinRequests={joinRequests}
         stageDefs={stageDefs.map((s) => ({ id: s.id, key: s.key, label: s.label, isCore: s.isCore }))}
         stepDefs={stepDefs.map((s) => ({ id: s.id, key: s.key, label: s.label, isCore: s.isCore }))}
         fieldDefs={fieldDefs.map((f) => ({

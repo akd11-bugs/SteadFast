@@ -527,17 +527,6 @@ model Invite {
 // (that's what Invite is for). Approving one just creates a real Invite
 // (role: 'sales') and emails the requester a redeem link — this model only
 // ever tracks the request itself, never the account creation.
-model JoinRequest {
-  id              String   @id @default(cuid())
-  orgId           String
-  requesterName   String
-  requesterEmail  String
-  status          String   @default("pending") // pending | approved | rejected
-  createdAt       DateTime @default(now())
-
-  @@index([orgId, status])
-}
-
 model SignupToken {
   id        String    @id @default(cuid())
   email     String

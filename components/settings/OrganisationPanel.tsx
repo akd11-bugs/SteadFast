@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { UserPlus, Loader2, Copy, Ban, Trash2, Check, UserCheck, KeyRound, Link2, X } from 'lucide-react'
+import { UserPlus, Loader2, Copy, Ban, Trash2, Check, KeyRound, Link2 } from 'lucide-react'
 
 interface UserRow {
   id: string
@@ -43,13 +42,6 @@ interface InviteRow {
   createdAt: string
 }
 
-interface JoinRequestRow {
-  id: string
-  requesterName: string
-  requesterEmail: string
-  createdAt: string
-}
-
 type Role = 'admin' | 'sales' | 'operations'
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -61,27 +53,21 @@ const ROLE_LABELS: Record<Role, string> = {
 export function OrganisationPanel({
   initialUsers,
   initialInvites,
-  initialJoinRequests,
   orgSlug,
 }: {
   initialUsers: UserRow[]
   initialInvites: InviteRow[]
-  initialJoinRequests: JoinRequestRow[]
   // Null until the org is backfilled; the PIN dialog then omits the link
   // rather than showing a broken one.
   orgSlug?: string | null
 }) {
-  const router = useRouter()
   const [users, setUsers] = useState(initialUsers)
   const [invites, setInvites] = useState(initialInvites)
-  const [joinRequests, setJoinRequests] = useState(initialJoinRequests)
   const [form, setForm] = useState({ name: '', role: 'sales' as Role })
   const [saving, setSaving] = useState(false)
   const [linkSaving, setLinkSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [approveRole, setApproveRole] = useState<Record<string, Role>>({})
-  const [joinRequestBusyId, setJoinRequestBusyId] = useState<string | null>(null)
   const [pinTarget, setPinTarget] = useState<UserRow | null>(null)
   const [pinValue, setPinValue] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
@@ -125,23 +111,6 @@ export function OrganisationPanel({
       setInvites((prev) => [data.invite, ...prev])
     } finally {
       setLinkSaving(false)
-    }
-  }
-
-  async function respondToJoinRequest(id: string, action: 'approve' | 'reject') {
-    setJoinRequestBusyId(id)
-    try {
-      const res = await fetch(`/api/join-requests/${id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action }),
-      })
-      if (res.ok) {
-        setJoinRequests((prev) => prev.filter((r) => r.id !== id))
-        router.refresh()
-      }
-    } finally {
-      setJoinRequestBusyId(null)
     }
   }
 
@@ -220,7 +189,6 @@ export function OrganisationPanel({
   const reusableLinks = invites.filter((i) => i.isReusable && i.status === 'pending')
   const pendingInvites = invites.filter((i) => !i.isReusable && i.status === 'pending')
   const otherInvites = invites.filter((i) => !i.isReusable && i.status !== 'pending')
-  const pendingApprovals = users.filter((u) => u.role === 'pending')
   const activeUsers = users.filter((u) => u.role !== 'pending')
 
   return (
@@ -229,80 +197,6 @@ export function OrganisationPanel({
         <CardTitle className="text-base">Organisation</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {joinRequests.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-sky-700">Requests to join your organisation</p>
-            {joinRequests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{r.requesterName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{r.requesterEmail}</p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Button
-                    size="sm"
-                    className="h-7"
-                    disabled={joinRequestBusyId === r.id}
-                    onClick={() => respondToJoinRequest(r.id, 'approve')}
-                  >
-                    {joinRequestBusyId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5" />}
-                    Approve
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 text-rose-600 hover:text-rose-700"
-                    title="Reject"
-                    disabled={joinRequestBusyId === r.id}
-                    onClick={() => respondToJoinRequest(r.id, 'reject')}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {pendingApprovals.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-amber-700">Awaiting approval — signed in with Google</p>
-            {pendingApprovals.map((u) => (
-              <div key={u.id} className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{u.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Select value={approveRole[u.id] ?? 'sales'} onValueChange={(v) => setApproveRole({ ...approveRole, [u.id]: v as Role })}>
-                    <SelectTrigger className="h-7 w-[7.5rem] text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sales">Sales</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="operations">Operations</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" className="h-7" onClick={() => changeRole(u.id, approveRole[u.id] ?? 'sales')}>
-                    <UserCheck className="h-3.5 w-3.5" />
-                    Approve
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 text-rose-600 hover:text-rose-700"
-                    title="Reject"
-                    onClick={() => deleteUser(u.id, u.name)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
         <div className="space-y-1.5">
           {activeUsers.map((u) => (
             <div key={u.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">

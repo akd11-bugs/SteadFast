@@ -40,8 +40,14 @@ export async function POST(req: Request) {
   try {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      // 587 (STARTTLS) instead of 465 (implicit TLS) — a live ETIMEDOUT on
+      // port 465 from this exact route (Render, 2026-11-05) pointed at an
+      // outbound-port block, not a credential/policy problem; 587 is the
+      // other port Gmail accepts and is more commonly left open by hosts
+      // that restrict 465.
+      port: 587,
+      secure: false,
+      requireTLS: true,
       auth: { user: emailFromAddress, pass: appPassword },
       // Nodemailer's defaults (up to a 10-minute socket timeout) leave the
       // "Saving…" button hanging with no feedback if Gmail is slow to

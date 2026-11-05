@@ -43,7 +43,7 @@ export const FIELD_SYNONYMS: Record<Field, string[]> = {
   source: ['source', 'lead source', 'channel'],
   type: ['type', 'partner merchant'],
   estimatedVolume: ['estimated volume', 'value', 'volume', 'amount', 'deal value', 'expected volume'],
-  notes: ['notes', 'note', 'comments', 'comment', 'remarks'],
+  notes: ['notes', 'note', 'comments', 'comment', 'remarks', 'remark'],
 }
 
 export function normalizeHeader(h: string) {

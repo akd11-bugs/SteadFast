@@ -64,10 +64,22 @@ const SECURITY_HEADERS = [
 ]
 
 /** @type {import('next').NextConfig} */
+// Next.js Server Actions (app/login/page.tsx's `login`/`loginWithGoogle`,
+// and any other `'use server'` form action) reject a submission whose
+// Origin header doesn't match the Host header Next.js sees — with no
+// trusted-list concept like Neon Auth's, so Render's reverse proxy or an
+// in-app browser (Gmail/Slack/WhatsApp link preview) mangling that header
+// surfaces as "Invalid Server Actions request" with no further detail.
+// Declaring the real deployed origin(s) here is the documented escape
+// hatch. Keep this in sync with Neon Auth's trusted-origins list — both
+// gate roughly the same "is this really our site" check.
+const SERVER_ACTION_ORIGINS = ['lead-managment-and-onboarding.onrender.com', 'steadfast-bqgf.onrender.com']
+
 const nextConfig = {
   experimental: {
     serverActions: {
       bodySizeLimit: '5mb',
+      allowedOrigins: SERVER_ACTION_ORIGINS,
     },
     // Set by `next upgrade --agent=security` (16.4.0 -> 16.4.3) — tells
     // Next's own tooling this app opted into automated security-patch

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
 import { readJsonBody } from '@/lib/http'
@@ -73,9 +74,23 @@ export async function POST(req: Request) {
   }
 
   const org = await createOrganization(companyName)
-  const user = await prisma.user.create({
-    data: { orgId: org.id, name, email: signupEmail, passwordHash: null, role: 'admin', isActive: true },
-  })
+  // The token-claim transaction above already serializes two requests for
+  // the SAME signup link, but a different path (an invite redeemed, or a
+  // domain auto-join) could in principle create a User for this email in
+  // the gap between that transaction and this insert — the unique
+  // constraint on email is what actually closes it. The org row stays
+  // orphaned in that case (acceptable: empty, no seedSampleLeads yet), but
+  // the request must not 500.
+  let user
+  try {
+    user = await prisma.user.create({
+      data: { orgId: org.id, name, email: signupEmail, passwordHash: null, role: 'admin', isActive: true },
+    })
+  } catch (err) {
+    const isDuplicateEmail = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+    if (!isDuplicateEmail) throw err
+    return NextResponse.json({ error: 'That email is already registered — log in instead' }, { status: 409 })
+  }
   await seedSampleLeads(org.id)
 
   await logAudit({

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Loader2 } from 'lucide-react'
+import { signOutForInviteRetry } from '@/app/invite/redeem/actions'
 
 // `alreadySignedInEmail` is set when the visitor already has a live Neon
 // Auth session (e.g. she signed in with Google, hit /account-not-found,
@@ -14,6 +15,15 @@ import { Loader2 } from 'lucide-react'
 // app/api/invites/redeem/route.ts for why that path must skip password
 // creation entirely rather than trying to sign up a second identity for an
 // email Neon Auth already has one for).
+//
+// An invite code carries no email of its own (Invite has no email column —
+// a reusable link can't name anyone in advance), so there is nothing to
+// compare a live session against. The real risk is someone forwarding an
+// invite link and it getting opened on a device/browser signed in under a
+// DIFFERENT person's stale Google session — she'd silently join as that
+// wrong identity with no indication anything was off. Making the identity
+// explicit, with an easy way out, is the only fix available given invites
+// are bearer codes by design.
 export function RedeemInviteForm({ alreadySignedInEmail }: { alreadySignedInEmail: string | null }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -69,6 +79,20 @@ export function RedeemInviteForm({ alreadySignedInEmail }: { alreadySignedInEmai
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
+            {alreadySignedInEmail && (
+              <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+                <span>
+                  Joining as <span className="font-medium">{alreadySignedInEmail}</span>
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 underline underline-offset-4 text-muted-foreground hover:text-foreground"
+                  onClick={() => signOutForInviteRetry(form.code.trim())}
+                >
+                  Not you? Sign out
+                </button>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="code">Invite code</Label>
               <Input

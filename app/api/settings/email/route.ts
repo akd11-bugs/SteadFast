@@ -51,7 +51,13 @@ export async function POST(req: Request) {
       socketTimeout: 10_000,
     })
     await transporter.verify()
-  } catch {
+  } catch (err) {
+    // Logged server-side only (never echoed to the client) — the generic
+    // message below covers every failure mode identically (wrong password,
+    // 2FA/app-passwords disabled, network block, Google's own abuse
+    // heuristics), which makes a real failure indistinguishable from user
+    // error without checking these logs.
+    console.error('settings/email: transporter.verify() failed', { emailFromAddress, err })
     return NextResponse.json(
       { error: 'Could not sign in with that address and app password — check both and try again' },
       { status: 400 }

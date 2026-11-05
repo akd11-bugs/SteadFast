@@ -33,7 +33,16 @@ export async function POST(req: Request) {
   const smtpPort = Number(body.smtpPort)
   const smtpSecure = body.smtpSecure !== false
   const smtpUser = String(body.smtpUser ?? '').trim()
-  const smtpPass = String(body.smtpPass ?? '')
+  // Google displays a Gmail app password with spaces for readability
+  // (e.g. "abcd efgh ijkl mnop") — the real password is the 16 characters
+  // with no spaces. Pasted verbatim, those spaces make a genuinely correct
+  // password fail Gmail's SMTP auth. Scoped to Gmail hosts only (including
+  // a Google Workspace business address, which still routes through
+  // smtp.gmail.com) since some other provider's real password could in
+  // principle contain a space.
+  const isGmailHost = /gmail/i.test(smtpHost)
+  const rawSmtpPass = String(body.smtpPass ?? '')
+  const smtpPass = isGmailHost ? rawSmtpPass.replace(/\s+/g, '') : rawSmtpPass
   const fromAddress = String(body.fromAddress ?? '').trim()
   const fromName = body.fromName ? String(body.fromName).trim() : null
 

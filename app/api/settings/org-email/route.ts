@@ -67,7 +67,13 @@ export async function POST(req: Request) {
       const transporter = createMailboxTransporter({ host: smtpHost, port: smtpPort, secure: smtpSecure, user: smtpUser, pass: smtpPass })
       await transporter.verify()
     }
-  } catch {
+  } catch (err) {
+    // Logged server-side only (never echoed to the client) — same reasoning
+    // as the personal-settings route's debug log: the generic message below
+    // covers wrong credentials, a blocked outbound port, and provider-side
+    // auth policy identically, which makes them indistinguishable without
+    // checking these logs.
+    console.error('settings/org-email: transporter.verify() failed', { smtpHost, smtpPort, smtpUser, err })
     return NextResponse.json(
       { error: 'Could not sign in with that SMTP host/user/password — check them and try again' },
       { status: 400 },

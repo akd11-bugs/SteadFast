@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BOARD_COLUMN_COLORS } from '@/lib/types'
+import { buildBoardColumns, type BoardColumn } from '@/lib/boardColumns'
 
 export interface StageOption {
   id: string
@@ -27,43 +27,7 @@ export interface PendingSubStatusOption {
   isDefault: boolean
 }
 
-export interface BoardColumn {
-  key: string
-  label: string
-  description: string | null
-  color: string | null
-}
-
-// A column's `color` comes from its org-customizable StageDefinition row
-// when an admin has set one (see components/settings/PipelineConfigCard.tsx)
-// — every core stage seeds with `color: null` (lib/pipelineConfig.ts), so it
-// falls back to BOARD_COLUMN_COLORS (lib/types.ts — shared with the
-// dashboard charts, so the Kanban board and the charts never disagree on
-// what a stage's color means). A custom (non-core) stage with no color set
-// falls back to BOARD_COLUMN_COLORS.new — the same neutral 'new' uses.
-
-// Pending's sub-statuses expand into one column per the org's actual
-// PendingSubStatusDefinition rows (fully admin add/remove/rename-able — see
-// that model's doc comment in prisma/schema.prisma) instead of a fixed
-// 3-column list. All share the same neutral pending color since they're not
-// individually colorable the way top-level stages are.
-function buildBoardColumns(stages: StageOption[], pendingSubStatuses: PendingSubStatusOption[]): BoardColumn[] {
-  return stages.flatMap((s) =>
-    s.key === 'pending'
-      ? pendingSubStatuses.map((p) => ({
-          key: p.key,
-          label: p.label,
-          description: p.owner === 'us' ? 'Our turn to follow up' : 'Waiting on them to act',
-          color: BOARD_COLUMN_COLORS.pending_ours,
-        }))
-      : [{
-          key: s.key,
-          label: s.label,
-          description: s.description,
-          color: s.color ?? BOARD_COLUMN_COLORS[s.key] ?? BOARD_COLUMN_COLORS.new,
-        }]
-  )
-}
+export type { BoardColumn }
 
 function shapeConfig(
   stages: StageOption[] | null,

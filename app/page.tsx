@@ -15,7 +15,7 @@ import { boardColumnFor, type LeadSource } from '@/lib/types'
 import { redirect } from 'next/navigation'
 import { requireUser, resolveSession, leadScope, isOperations } from '@/lib/session'
 import { LandingPage } from '@/components/marketing/LandingPage'
-import { getPendingSubStatusDefinitions } from '@/lib/pipelineConfig'
+import { getPendingSubStatusDefinitions, getStageDefinitions, buildBoardColumns } from '@/lib/pipelineConfig'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,13 +32,20 @@ export default async function DashboardPage() {
 
   const user = await requireUser()
   if (isOperations(user)) redirect('/onboarding')
-  const [leads, pendingSubStatusDefs] = await Promise.all([
+  const [leads, pendingSubStatusDefs, stageDefs] = await Promise.all([
     prisma.lead.findMany({ where: leadScope(user), orderBy: { updatedAt: 'desc' } }),
     getPendingSubStatusDefinitions(user.orgId),
+    getStageDefinitions(user.orgId),
   ])
   const pendingSubStatusOwners = Object.fromEntries(
     pendingSubStatusDefs.map((s) => [s.key, s.owner as 'us' | 'external']),
   )
+  // The dashboard's own column list, built from the org's real (possibly
+  // custom) stages — NOT lib/types.ts's fixed BOARD_COLUMNS. Passed to
+  // PipelineFunnel so a custom stage shows up in the chart instead of
+  // being silently dropped (previously that component built its own rows
+  // from the fixed list, ignoring whatever funnelData below actually had).
+  const boardColumns = buildBoardColumns(stageDefs, pendingSubStatusDefs)
 
   const alerts = computeAlerts(leads as any, pendingSubStatusOwners)
 
@@ -217,7 +224,7 @@ export default async function DashboardPage() {
       {/* Pipeline + activity */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <PipelineFunnel data={funnelData} />
+          <PipelineFunnel data={funnelData} columns={boardColumns} />
         </div>
         <ActivityFeed limit={8} />
       </div>

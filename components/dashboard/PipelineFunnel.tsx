@@ -5,23 +5,30 @@ import Link from 'next/link'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatCurrency, cn } from '@/lib/utils'
-import type { BoardColumnKey } from '@/lib/types'
-import { BOARD_COLUMNS, BOARD_COLUMN_LABELS, BOARD_COLUMN_COLORS } from '@/lib/types'
+import { BOARD_COLUMN_COLORS } from '@/lib/types'
+import type { BoardColumn } from '@/lib/boardColumns'
 
 interface PipelineData {
-  stage: BoardColumnKey
+  stage: string
   count: number
   value: number
 }
 
-export function PipelineFunnel({ data }: { data: PipelineData[] }) {
+// `columns` is the org's real (possibly custom) stage list, built
+// server-side by lib/pipelineConfig.ts's buildBoardColumns() — same
+// function the Kanban board uses via usePipelineConfig(), so a custom
+// stage an admin adds shows up here too instead of being silently
+// dropped (this component previously built its own rows from lib/types.ts's
+// fixed BOARD_COLUMNS, which `data` could contain stages outside of).
+export function PipelineFunnel({ data, columns }: { data: PipelineData[]; columns: BoardColumn[] }) {
   const router = useRouter()
   const byStage = new Map(data.map((d) => [d.stage, d]))
-  const rows = BOARD_COLUMNS.map((s) => ({
-    stage: s,
-    label: BOARD_COLUMN_LABELS[s],
-    count: byStage.get(s)?.count ?? 0,
-    value: byStage.get(s)?.value ?? 0,
+  const rows = columns.map((c) => ({
+    stage: c.key,
+    label: c.label,
+    color: c.color ?? BOARD_COLUMN_COLORS.new,
+    count: byStage.get(c.key)?.count ?? 0,
+    value: byStage.get(c.key)?.value ?? 0,
   }))
   const totalLeads = rows.reduce((sum, r) => sum + r.count, 0)
 
@@ -61,21 +68,21 @@ export function PipelineFunnel({ data }: { data: PipelineData[] }) {
               />
               <Bar dataKey="count" radius={[4, 4, 0, 0]} cursor="pointer" onClick={(d) => router.push(`/leads?stage=${d.payload.stage}`)}>
                 {rows.map((r) => (
-                  <Cell key={r.stage} fill={BOARD_COLUMN_COLORS[r.stage]} />
+                  <Cell key={r.stage} fill={r.color} />
                 ))}
                 <LabelList dataKey="count" position="top" style={{ fontSize: 11, fontWeight: 600 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div className="grid grid-cols-6 gap-1 mt-2 text-center">
+        <div className="grid gap-1 mt-2 text-center" style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}>
           {rows.map((r) => (
             <Link key={r.stage} href={`/leads?stage=${r.stage}`} className="text-[10px] rounded hover:bg-accent/60">
               <p className={cn('font-semibold tabular-nums')}>{formatCurrency(r.value)}</p>
             </Link>
           ))}
         </div>
-        <div className="grid grid-cols-6 gap-1 mt-1 text-center">
+        <div className="grid gap-1 mt-1 text-center" style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}>
           {rows.map((r) => (
             <Link
               key={r.stage}

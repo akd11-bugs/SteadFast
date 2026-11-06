@@ -11,6 +11,8 @@ import {
   PENDING_SUB_STATUS_LABELS,
 } from '@/lib/types'
 
+export { buildBoardColumns, type BoardColumn } from '@/lib/boardColumns'
+
 // Seeds an org's StageDefinition rows from lib/types.ts's built-in STAGES the
 // first time they're read, then returns the ordered list. All 5 seeded rows
 // are `isCore: true` — their key/position are locked (enforced by the API

@@ -17,8 +17,13 @@ export async function PATCH(_req: Request, { params }: { params: Promise<{ id: s
     return NextResponse.json({ error: 'Only pending invites can be revoked' }, { status: 400 })
   }
 
-  const invite = await prisma.invite.update({ where: { id }, data: { status: 'revoked' } })
-  await logAudit({ action: 'invite_revoked', actorUserId: user.id, targetInviteId: invite.id })
+  // Conditional on still-pending: a redeem that lands between the read above
+  // and this write must not be overwritten to 'revoked'.
+  const revoked = await prisma.invite.updateMany({ where: { id, status: 'pending' }, data: { status: 'revoked' } })
+  if (revoked.count === 0) {
+    return NextResponse.json({ error: 'Only pending invites can be revoked' }, { status: 400 })
+  }
+  await logAudit({ action: 'invite_revoked', actorUserId: user.id, targetInviteId: id })
 
-  return NextResponse.json({ invite })
+  return NextResponse.json({ invite: { ...existing, status: 'revoked' } })
 }

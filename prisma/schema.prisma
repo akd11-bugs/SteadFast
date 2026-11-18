@@ -359,6 +359,7 @@ model Lead {
   activities      Activity[]
   skillRuns       SkillRun[]
   tasks           Task[]
+  jobRunIssues    JobRunIssue[]
 
   @@index([orgId])
   @@index([stage, position])
@@ -385,11 +386,14 @@ model User {
   createdAt           DateTime  @default(now())
 
   // Personal outbound email — lets a rep send automated/triggered mail from
-  // their own address instead of the shared app mailbox. Write-only from the
-  // API's perspective: emailAppPasswordEnc is never returned to the client.
-  emailFromAddress    String?
-  emailAppPasswordEnc String?   // AES-256-GCM ciphertext: "iv:authTag:ciphertext", base64
-  emailConfiguredAt   DateTime?
+  // their own address instead of the shared app mailbox. Sends via the
+  // Gmail API (OAuth), not SMTP — Render's free tier blocks outbound SMTP
+  // ports entirely, confirmed via live ETIMEDOUT connection failures on
+  // both 465 and 587. gmailRefreshTokenEnc is write-only from the API's
+  // perspective: never returned to the client.
+  emailFromAddress     String?
+  gmailRefreshTokenEnc String?   // AES-256-GCM ciphertext: "iv:authTag:ciphertext", base64
+  emailConfiguredAt    DateTime?
 
   // Rep-form auth (/rep) — separate identity from the real password above, so
   // a lockout on one never locks the other. Only set once an admin issues a PIN.
@@ -579,9 +583,40 @@ model JobRun {
   startedAt  DateTime
   finishedAt DateTime
   error      String?
+  issues     JobRunIssue[]
 
   @@index([jobKey, finishedAt])
   @@index([orgId, finishedAt])
+}
+
+// One row per skipped/ambiguous import row from a JobRun (today: only
+// sync-leads-sheet) — see the "Sync review" plan for why this is a separate
+// table rather than a JSON blob on JobRun: review happens after the fact,
+// against already-persisted data, and each row needs its own resolution
+// state (who corrected what, to what, when) without rewriting a shared blob
+// non-atomically every time one row is resolved. Follows the same
+// "separate table for a job's structured output" convention SkillRun
+// already establishes for Lead.
+model JobRunIssue {
+  id             String    @id @default(cuid())
+  jobRunId       String
+  jobRun         JobRun    @relation(fields: [jobRunId], references: [id], onDelete: Cascade)
+  orgId          String
+  row            Int       // 1-based sheet/CSV row number, matches importLeadRows' existing numbering
+  kind           String    // 'skip' | 'stage_unmapped'
+  reason         String    // e.g. "missing company" (skip), or the raw sheet value that didn't match any stage
+  rawValue       String?   // the literal cell value, for stage_unmapped rows — what the AI suggestion is based on
+  leadId         String?   // set for stage_unmapped (the lead WAS created, just defaulted to 'new') — null for skip (no lead exists)
+  lead           Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  suggestedStage String?   // AI's best-guess stage key, null if AI call failed/found nothing
+  suggestionConfidence String? // free-text note from the model, shown alongside the suggestion, not used for logic
+  resolvedStage  String?   // the stage actually applied, once a human acts — null until resolved
+  resolvedBy     String?   // user id who resolved it
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([jobRunId])
+  @@index([orgId, resolvedAt])
 }
 
 model SkillRun {

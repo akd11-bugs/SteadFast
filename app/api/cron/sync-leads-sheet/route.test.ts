@@ -8,7 +8,8 @@ const orgSheetConnectorFindManyMock = vi.fn()
 const orgSheetConnectorUpdateMock = vi.fn()
 const getSheetRowsMock = vi.fn()
 const importLeadRowsMock = vi.fn()
-const recordJobRunMock = vi.fn()
+const startJobRunMock = vi.fn()
+const finishJobRunMock = vi.fn()
 const leadFieldDefinitionFindManyMock = vi.fn()
 
 vi.mock('@/lib/db', () => ({
@@ -40,7 +41,8 @@ vi.mock('@/lib/leadImport', () => ({
 }))
 
 vi.mock('@/lib/jobRun', () => ({
-  recordJobRun: (...args: unknown[]) => recordJobRunMock(...args),
+  startJobRun: (...args: unknown[]) => startJobRunMock(...args),
+  finishJobRun: (...args: unknown[]) => finishJobRunMock(...args),
 }))
 
 const { POST } = await import('./route')
@@ -66,7 +68,8 @@ beforeEach(() => {
   orgSheetConnectorUpdateMock.mockReset()
   getSheetRowsMock.mockReset()
   importLeadRowsMock.mockReset()
-  recordJobRunMock.mockReset()
+  startJobRunMock.mockReset()
+  finishJobRunMock.mockReset()
   leadFieldDefinitionFindManyMock.mockReset()
 
   userFindManyMock.mockResolvedValue([{ id: 'org-a-owner', name: 'Org A Owner' }])
@@ -78,7 +81,8 @@ beforeEach(() => {
   ])
   orgSheetConnectorUpdateMock.mockResolvedValue({})
   importLeadRowsMock.mockResolvedValue({ created: 0, skipped: [], customFieldWarnings: [] })
-  recordJobRunMock.mockResolvedValue(undefined)
+  startJobRunMock.mockResolvedValue('job-run-1')
+  finishJobRunMock.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -232,18 +236,28 @@ describe('POST /api/cron/sync-leads-sheet', () => {
     expect(body.results[0].skipped).toEqual([{ row: 2, reason: 'Invalid email' }])
   })
 
-  it('records a successful JobRun scoped to the connector\'s org after a normal sync', async () => {
+  it('starts then finishes a successful JobRun scoped to the connector\'s org after a normal sync', async () => {
     getSheetRowsMock.mockResolvedValue([
       ['Company', 'Email'],
       ['Acme', 'a@acme.com'],
     ])
     await POST(req('test-key'))
-    expect(recordJobRunMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: 'org-a', jobKey: 'sync-leads-sheet', status: 'success' })
+    expect(startJobRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-a', jobKey: 'sync-leads-sheet' })
     )
+    expect(finishJobRunMock).toHaveBeenCalledWith('job-run-1', expect.objectContaining({ status: 'success' }))
   })
 
-  it('records a failed JobRun and reports an error on that source (not a bare unhandled crash) when importLeadRows throws mid-batch', async () => {
+  it('passes the started JobRun\'s id through to importLeadRows so issues attach to the right run', async () => {
+    getSheetRowsMock.mockResolvedValue([
+      ['Company', 'Email'],
+      ['Acme', 'a@acme.com'],
+    ])
+    await POST(req('test-key'))
+    expect(importLeadRowsMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'org-a', 'job-run-1')
+  })
+
+  it('finishes a failed JobRun and reports an error on that source (not a bare unhandled crash) when importLeadRows throws mid-batch', async () => {
     getSheetRowsMock.mockResolvedValue([
       ['Company', 'Email'],
       ['Acme', 'a@acme.com'],
@@ -255,12 +269,13 @@ describe('POST /api/cron/sync-leads-sheet', () => {
 
     expect(res.status).toBe(200)
     expect(body.results[0].error).toContain('DB connection dropped')
-    expect(recordJobRunMock).toHaveBeenCalledWith(
-      expect.objectContaining({ jobKey: 'sync-leads-sheet', status: 'failure', error: expect.stringContaining('DB connection dropped') })
+    expect(finishJobRunMock).toHaveBeenCalledWith(
+      'job-run-1',
+      expect.objectContaining({ status: 'failure', error: expect.stringContaining('DB connection dropped') })
     )
   })
 
-  it('records a failed JobRun when the configured sheet ID is wrong/inaccessible (a 404 from Google), without crashing the request', async () => {
+  it('finishes a failed JobRun when the configured sheet ID is wrong/inaccessible (a 404 from Google), without crashing the request', async () => {
     getSheetRowsMock.mockRejectedValue(new Error('Google Sheets API error (404): Requested entity was not found.'))
 
     const res = await POST(req('test-key'))
@@ -268,9 +283,10 @@ describe('POST /api/cron/sync-leads-sheet', () => {
 
     expect(res.status).toBe(200)
     expect(body.results[0].error).toContain('404')
-    expect(recordJobRunMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: 'org-a', jobKey: 'sync-leads-sheet', status: 'failure' })
+    expect(startJobRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-a', jobKey: 'sync-leads-sheet' })
     )
+    expect(finishJobRunMock).toHaveBeenCalledWith('job-run-1', expect.objectContaining({ status: 'failure' }))
   })
 
   it('syncs multiple org connectors independently, each with its own cursor', async () => {

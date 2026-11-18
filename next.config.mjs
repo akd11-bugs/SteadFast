@@ -76,6 +76,9 @@ const SECURITY_HEADERS = [
 const SERVER_ACTION_ORIGINS = ['lead-managment-and-onboarding.onrender.com', 'steadfast-bqgf.onrender.com']
 
 const nextConfig = {
+  // Next.js sends `X-Powered-By: Next.js` on every response by default —
+  // free framework-fingerprinting for an attacker, no functional purpose.
+  poweredByHeader: false,
   experimental: {
     serverActions: {
       bodySizeLimit: '5mb',

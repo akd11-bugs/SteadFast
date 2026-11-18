@@ -54,7 +54,8 @@ export function RedeemInviteForm({ alreadySignedInEmail }: { alreadySignedInEmai
           ...(alreadySignedInEmail ? {} : { email: form.email, password: form.password }),
         }),
       })
-      const data = await res.json()
+      // A crashed request returns HTML, not JSON: still show an error.
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setError(data.error ?? 'Failed to redeem invite')
         return

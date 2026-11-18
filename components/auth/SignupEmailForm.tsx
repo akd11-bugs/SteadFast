@@ -1,9 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
+import { AuthField, AuthNotice, AuthSecondaryButton } from '@/components/auth/AuthControls'
 import { Loader2, MailCheck } from 'lucide-react'
 
 export function SignupEmailForm() {
@@ -34,30 +32,27 @@ export function SignupEmailForm() {
 
   if (sent) {
     return (
-      <div className="flex flex-col items-center gap-2 py-4 text-center text-sm text-muted-foreground">
-        <MailCheck className="h-8 w-8 text-emerald-600" />
+      <div className="flex flex-col items-center gap-2 py-4 text-center text-sm text-white/60">
+        <MailCheck className="h-8 w-8 text-emerald-400" />
         <p>Sent to {email}. The link expires in 30 minutes.</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-1.5">
-        <Label htmlFor="email">Email</Label>
-        <Input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && requestLink()}
-        />
-      </div>
-      {error && <p className="text-sm text-rose-600">{error}</p>}
-      <Button className="w-full" variant="outline" onClick={requestLink} disabled={saving || !email}>
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        requestLink()
+      }}
+    >
+      <AuthField id="email" label="Email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      {error && <AuthNotice tone="error">{error}</AuthNotice>}
+      <AuthSecondaryButton type="submit" disabled={saving || !email}>
         {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
         Send me a signup link
-      </Button>
-    </div>
+      </AuthSecondaryButton>
+    </form>
   )
 }

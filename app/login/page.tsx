@@ -3,18 +3,17 @@ import Link from 'next/link'
 import { neonAuth } from '@/lib/auth'
 import { signInWithLockout } from '@/lib/loginLockout'
 import { resolveSession } from '@/lib/session'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { AuthAlternative, AuthField, AuthGoogleButton, AuthNotice, AuthSecondaryButton } from '@/components/auth/AuthControls'
 import { BRAND_NAME } from '@/lib/branding'
 import { isSafeRedirectTarget } from '@/lib/publicRoutes'
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; error?: string; reason?: string; redeemed?: string }>
+  searchParams: Promise<{ from?: string; error?: string; reason?: string; redeemed?: string; reset?: string }>
 }) {
-  const { from, error, reason, redeemed } = await searchParams
+  const { from, error, reason, redeemed, reset } = await searchParams
   const googleEnabled = !!process.env.GOOGLE_CLIENT_ID
   const redirectTo = isSafeRedirectTarget(from) ? from : '/'
 
@@ -53,6 +52,19 @@ export default async function LoginPage({
     redirect(data.url)
   }
 
+  // Password sign-in is always reachable, collapsed under Google. It needs no
+  // outbound email, and invite redeemers and admin-created users have only a
+  // password: hiding it on a plain /login locked them out once their first
+  // session ended. Only email *sign-up* is switched off (lib/authFlags.ts).
+  const justSetPassword = !!redeemed || !!reset
+  const passwordForm = (
+    <form action={login} className="space-y-3">
+      <AuthField id="email" name="email" label="Email" type="email" autoComplete="email" required autoFocus={!googleEnabled} />
+      <AuthField id="password" name="password" label="Password" type="password" autoComplete="current-password" required />
+      <AuthSecondaryButton type="submit">Sign in</AuthSecondaryButton>
+    </form>
+  )
+
   return (
     <AuthShell
       title="Welcome back"
@@ -70,76 +82,32 @@ export default async function LoginPage({
         </>
       }
     >
-      {redeemed && !error && (
-        <p className="mb-4 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-          Account created — log in with your new password.
-        </p>
+      {justSetPassword && !error && (
+        <AuthNotice tone="success">
+          {reset ? 'Password updated' : 'Account created'} — log in with your new password.
+        </AuthNotice>
       )}
       {error && (
-        <p className="mb-4 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+        <AuthNotice tone="error">
           {reason === 'locked'
             ? 'Too many failed attempts — try again in 15 minutes.'
             : reason === 'rate'
               ? 'Too many attempts — try again later.'
               : 'Invalid email or password.'}
-        </p>
+        </AuthNotice>
       )}
 
-      {googleEnabled && (
-        <form action={loginWithGoogle}>
-          <button
-            type="submit"
-            className="w-full rounded-full bg-white px-5 py-2.5 text-sm font-medium text-[#07080c] transition-transform hover:scale-[1.01] active:scale-[0.99]"
-          >
-            Sign in with Google
-          </button>
-        </form>
-      )}
+      {googleEnabled && <AuthGoogleButton action={loginWithGoogle} label="Sign in with Google" />}
 
-      {/* Opens by default without Google, or when a password attempt just
-          failed (error=1 only ever comes from the credentials path below —
-          see the `login` action's catch) so the error isn't hidden behind
-          a collapsed disclosure. */}
-      <details className={googleEnabled ? 'group mt-5' : 'group'} open={!googleEnabled || !!error}>
-        {googleEnabled && (
-          <summary className="cursor-pointer list-none text-center text-sm text-white/45 underline underline-offset-4 hover:text-white/70">
-            Use a password instead
-          </summary>
-        )}
-        <form action={login} className={googleEnabled ? 'mt-4 space-y-3' : 'space-y-3'}>
-          <div className="space-y-1.5">
-            <Label htmlFor="email" className="text-white/70">
-              Email
-            </Label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              required
-              autoFocus={!googleEnabled}
-              className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/30"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password" className="text-white/70">
-              Password
-            </Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              required
-              className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/30"
-            />
-          </div>
-          <button
-            type="submit"
-            className="w-full rounded-full border border-white/15 px-5 py-2.5 text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.06] hover:text-white"
-          >
-            Sign in
-          </button>
-        </form>
-      </details>
+      {googleEnabled ? (
+        // Opens straight away after a failed attempt or a fresh password,
+        // so the error or the form isn't hidden behind a collapsed link.
+        <AuthAlternative summary="Use a password instead" open={justSetPassword || !!error}>
+          {passwordForm}
+        </AuthAlternative>
+      ) : (
+        passwordForm
+      )}
     </AuthShell>
   )
 }

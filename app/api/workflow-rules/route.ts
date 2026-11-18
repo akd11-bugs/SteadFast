@@ -11,7 +11,7 @@ const TRIGGER_TYPES = ['stage_changed']
 const ACTION_TYPES = ['create_task', 'send_email', 'call_webhook']
 
 // Strips actionConfig.signingSecretEnc before a rule ever reaches the
-// client — it's write-only, same convention as User.emailAppPasswordEnc.
+// client — it's write-only, same convention as User.gmailRefreshTokenEnc.
 // The plaintext secret is shown exactly once, in the POST response below,
 // since that's the only moment the owner needs it (to configure their
 // receiving endpoint's signature check).

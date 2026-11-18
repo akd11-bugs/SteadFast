@@ -222,7 +222,7 @@ export default async function DashboardPage() {
       <AlertBanner alerts={alerts} />
 
       {/* Pipeline + activity */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <PipelineFunnel data={funnelData} columns={boardColumns} />
         </div>
@@ -230,7 +230,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Analytics */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <RepPerformance rows={repPerformance} />
         <SourceROI rows={sourceROI} />
       </div>

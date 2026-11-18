@@ -42,6 +42,19 @@ export default async function OpsDashboardPage() {
     if (!latestByJob.has(run.jobKey)) latestByJob.set(run.jobKey, run)
   }
 
+  // "Needs review" count per job run, scoped to the same recent window — an
+  // unresolved JobRunIssue (skipped row or sheet status that didn't map to a
+  // real pipeline stage) only ever attaches to one of the runs above.
+  const recentRunIds = recentRuns.map((r) => r.id)
+  const issueCounts = recentRunIds.length
+    ? await prisma.jobRunIssue.groupBy({
+        by: ['jobRunId'],
+        where: { jobRunId: { in: recentRunIds }, resolvedAt: null },
+        _count: { _all: true },
+      })
+    : []
+  const issueCountByJobRunId = new Map(issueCounts.map((c) => [c.jobRunId, c._count._all]))
+
   const [skillRunCount, llmSkillRunCount, scriptSkillRunCount] = await Promise.all([
     prisma.skillRun.count({ where: { orgId: { in: orgIds } } }),
     prisma.skillRun.count({ where: { orgId: { in: orgIds }, runnerType: 'llm' } }),
@@ -84,6 +97,7 @@ export default async function OpsDashboardPage() {
         <CardContent className="space-y-1.5">
           {Object.entries(JOB_LABELS).map(([jobKey, label]) => {
             const run = latestByJob.get(jobKey)
+            const needsReview = run ? (issueCountByJobRunId.get(run.id) ?? 0) : 0
             return (
               <div key={jobKey} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
                 <div className="flex items-center gap-2 min-w-0">
@@ -103,6 +117,13 @@ export default async function OpsDashboardPage() {
                         {run.status}
                       </Badge>
                       <span className="text-xs text-muted-foreground">{timeAgo(run.finishedAt)}</span>
+                      {needsReview > 0 && (
+                        <Link href={`/settings/ops/${run.id}/review`}>
+                          <Badge variant="destructive" className="text-[10px]">
+                            {needsReview} need{needsReview === 1 ? 's' : ''} review
+                          </Badge>
+                        </Link>
+                      )}
                     </>
                   ) : (
                     <span className="text-xs text-muted-foreground">No runs recorded yet</span>

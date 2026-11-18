@@ -11,6 +11,7 @@ import { ImportLeadsDialog } from '@/components/leads/ImportLeadsDialog'
 import type { SessionUser } from '@/lib/session'
 import { OrgLogo } from '@/components/branding/OrgLogo'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
+import { MobileNav } from '@/components/layout/MobileNav'
 
 interface CompanyResult {
   id: string
@@ -91,12 +92,12 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
   const showDropdown = open && query.trim().length >= 2
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 md:px-6 backdrop-blur">
-      <div className="md:hidden flex items-center gap-2 font-semibold">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/95 px-3 md:gap-3 md:px-6 backdrop-blur">
+      <div className="md:hidden flex shrink-0 items-center gap-1">
+        <MobileNav user={user} signOutButton={signOutButton} />
         <OrgLogo org={{ name: user.orgName, logoUrl: user.orgLogoUrl, logoDataUrl: user.orgLogoDataUrl }} size={20} />
-        <span className="text-sm tracking-tight">{user.orgName}</span>
       </div>
-      <div className="flex-1 max-w-xl relative" ref={containerRef}>
+      <div className="flex-1 min-w-0 max-w-xl relative" ref={containerRef}>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -108,7 +109,7 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
             onFocus={() => setOpen(true)}
             onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
             placeholder="Search leads, companies, POCs…"
-            className="pl-9 pr-14 h-9 bg-muted/40"
+            className="pl-9 pr-3 sm:pr-14 h-9 bg-muted/40"
             aria-label="Search"
           />
           <kbd className="pointer-events-none absolute right-2.5 top-2 hidden select-none items-center gap-0.5 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:flex">
@@ -117,7 +118,7 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
         </div>
 
         {showDropdown && (
-          <div className="absolute left-0 right-0 mt-1.5 rounded-md border bg-popover shadow-lg max-h-96 overflow-y-auto z-30">
+          <div className="fixed inset-x-3 top-14 mt-1.5 rounded-md border bg-popover shadow-lg max-h-96 overflow-y-auto z-30 md:absolute md:inset-x-0 md:top-auto">
             {searching && <p className="px-3 py-3 text-xs text-muted-foreground">Searching…</p>}
             {!searching && !hasResults && <p className="px-3 py-3 text-xs text-muted-foreground">No matches.</p>}
 
@@ -175,22 +176,27 @@ export function TopBar({ user, signOutButton }: { user: SessionUser; signOutButt
         <ScanLine className="h-4 w-4" />
       </Button>
       <NewLeadDialog open={scanDialogOpen} onOpenChange={setScanDialogOpen} autoTriggerScan />
-      <div className="flex items-center gap-2">
-        <ImportLeadsDialog />
+      <div className="flex shrink-0 items-center gap-2">
+        {/* Below md, CSV import, theme and sign out live in the MobileNav drawer. */}
+        <div className="hidden md:block">
+          <ImportLeadsDialog />
+        </div>
         <NewLeadDialog>
-          <Button size="sm">
+          <Button size="sm" className="h-9 w-9 px-0 sm:w-auto sm:px-3" aria-label="New Lead">
             <Plus className="h-4 w-4" />
-            New Lead
+            <span className="hidden sm:inline">New Lead</span>
           </Button>
         </NewLeadDialog>
-        <div className="hidden sm:flex items-center gap-1.5 pl-2 ml-1 border-l">
+        {/* lg+, not md+: between 768 and 1024 the sidebar leaves ~528px and
+            this group would push the header wider than the viewport. */}
+        <div className="hidden lg:flex items-center gap-1.5 pl-2 ml-1 border-l">
           <span className="text-sm font-medium">{user.name}</span>
           <Badge variant="outline" className="text-[10px] capitalize">
             {user.role}
           </Badge>
         </div>
-        <ThemeToggle />
-        {signOutButton}
+        <ThemeToggle className="hidden md:inline-flex" />
+        <div className="hidden md:block">{signOutButton}</div>
       </div>
     </header>
   )

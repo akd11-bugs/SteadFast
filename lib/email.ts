@@ -1,6 +1,11 @@
 import nodemailer from 'nodemailer'
+import { OAuth2Client } from 'google-auth-library'
 import { prisma } from '@/lib/db'
 import { tryDecrypt } from '@/lib/crypto'
+
+// Cookie holding the one-time `state` for the Gmail connect flow
+// (app/api/settings/email/oauth/start and /callback).
+export const GMAIL_OAUTH_STATE_COOKIE = 'gmail_oauth_state'
 
 export interface SendEmailInput {
   to: string
@@ -93,22 +98,67 @@ export async function sendEmail(input: SendEmailInput, orgId?: string): Promise<
   return send(mailbox, input)
 }
 
+// base64url, no padding — Gmail API's `raw` field requires this exact
+// encoding, not plain base64 (which uses +/ and = that aren't URL-safe).
+function toBase64Url(input: string): string {
+  return Buffer.from(input, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+// MIME headers need encoded-word escaping for any non-ASCII subject; this
+// app's subjects/bodies are plain operator-authored text (workflow rule
+// config, not user-supplied HTML), so a minimal RFC 2822 message is enough.
+function buildRawMessage(from: string, input: SendEmailInput): string {
+  const headers = [`From: ${from}`, `To: ${input.to}`, `Subject: ${input.subject}`, 'Content-Type: text/plain; charset="UTF-8"']
+  return toBase64Url(`${headers.join('\r\n')}\r\n\r\n${input.body}`)
+}
+
 /**
- * Sends as the given user's own configured Gmail app password, if they have
- * one — falls back to their org's mailbox, then the global shared mailbox,
- * if they don't, or if the stored credential fails to decrypt (e.g. key
- * rotated).
+ * Sends via the Gmail API (OAuth), as the given user's own connected Gmail
+ * account, if they have one — falls back to their org's mailbox, then the
+ * global shared mailbox, if they don't, or if the stored refresh token
+ * fails to decrypt (e.g. key rotated) or Google rejects it (e.g. access
+ * revoked). Not SMTP: Render's free tier blocks outbound SMTP entirely
+ * (confirmed via live ETIMEDOUT connection failures on both ports 465 and
+ * 587), so this sends over HTTPS instead, which isn't subject to that block.
  */
 export async function sendEmailAs(userId: string, input: SendEmailInput): Promise<SendEmailResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { orgId: true, emailFromAddress: true, emailAppPasswordEnc: true },
+    select: { orgId: true, emailFromAddress: true, gmailRefreshTokenEnc: true },
   })
 
-  const pass = user?.emailAppPasswordEnc ? tryDecrypt(user.emailAppPasswordEnc) : null
-  if (!user?.emailFromAddress || !pass) {
+  const refreshToken = user?.gmailRefreshTokenEnc ? tryDecrypt(user.gmailRefreshTokenEnc) : null
+  if (!user?.emailFromAddress || !refreshToken) {
     return sendEmail(input, user?.orgId)
   }
 
-  return send({ host: 'smtp.gmail.com', port: 465, secure: true, user: user.emailFromAddress, pass, from: user.emailFromAddress }, input)
+  const clientId = process.env.GOOGLE_CLIENT_ID
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    return sendEmail(input, user.orgId)
+  }
+
+  const client = new OAuth2Client({ clientId, clientSecret })
+  client.setCredentials({ refresh_token: refreshToken })
+
+  let accessToken: string | null | undefined
+  try {
+    accessToken = (await client.getAccessToken()).token
+  } catch {
+    // Refresh token rejected/revoked server-side (user disconnected from
+    // Google's end, or it expired) — same fallback as a decrypt failure.
+    return sendEmail(input, user.orgId)
+  }
+  if (!accessToken) return sendEmail(input, user.orgId)
+
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ raw: buildRawMessage(user.emailFromAddress, input) }),
+  })
+  if (!res.ok) {
+    throw new Error(`Gmail API send failed: ${res.status} ${await res.text().catch(() => '')}`)
+  }
+  const data = (await res.json()) as { id: string }
+  return { id: data.id }
 }

@@ -123,12 +123,6 @@ export function OrganisationPanel({
     if (res.ok) setInvites((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'revoked' } : i)))
   }
 
-  async function copyCode(id: string, code: string) {
-    await navigator.clipboard.writeText(code)
-    setCopiedId(id)
-    setTimeout(() => setCopiedId(null), 1500)
-  }
-
   async function copyLink(id: string, code: string) {
     const url = `${window.location.origin}/invite/redeem?code=${code}`
     await navigator.clipboard.writeText(url)
@@ -266,7 +260,7 @@ export function OrganisationPanel({
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <code className="rounded bg-muted px-2 py-1 text-xs">{i.code}</code>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => copyCode(i.id, i.code)} title="Copy code">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => copyLink(i.id, i.code)} title="Copy invite link" aria-label="Copy invite link">
                     {copiedId === i.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                   </Button>
                   <Button size="icon" variant="ghost" className="h-7 w-7 text-rose-600 hover:text-rose-700" onClick={() => revokeInvite(i.id)} title="Revoke">

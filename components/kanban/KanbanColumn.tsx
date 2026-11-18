@@ -2,7 +2,7 @@
 
 import { useDroppable } from '@dnd-kit/core'
 import { LeadCard } from './LeadCard'
-import type { Lead } from '@/lib/types'
+import type { Lead, BoardColumnKey } from '@/lib/types'
 import type { BoardColumn } from '@/lib/hooks/usePipelineConfig'
 import { formatCurrency, cn } from '@/lib/utils'
 
@@ -10,9 +10,11 @@ interface KanbanColumnProps {
   column: BoardColumn
   leads: Lead[]
   onCardClick: (lead: Lead) => void
+  moveTargets: BoardColumn[]
+  onMove: (lead: Lead, target: BoardColumnKey) => void
 }
 
-export function KanbanColumn({ column, leads, onCardClick }: KanbanColumnProps) {
+export function KanbanColumn({ column, leads, onCardClick, moveTargets, onMove }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${column.key}`,
     data: { type: 'column', columnKey: column.key },
@@ -47,10 +49,12 @@ export function KanbanColumn({ column, leads, onCardClick }: KanbanColumnProps) 
       >
         {leads.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center text-xs text-muted-foreground">
-            Drop leads here
+            No leads in this stage
           </div>
         ) : (
-          leads.map((lead) => <LeadCard key={lead.id} lead={lead} onClick={onCardClick} />)
+          leads.map((lead) => (
+            <LeadCard key={lead.id} lead={lead} onClick={onCardClick} moveTargets={moveTargets} onMove={onMove} />
+          ))
         )}
       </div>
     </div>

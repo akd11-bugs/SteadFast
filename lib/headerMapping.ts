@@ -15,6 +15,7 @@ export const FIELDS = [
   'type',
   'estimatedVolume',
   'notes',
+  'stage',
 ] as const
 export type Field = (typeof FIELDS)[number]
 
@@ -30,6 +31,7 @@ export const FIELD_LABELS: Record<Field, string> = {
   type: 'Type',
   estimatedVolume: 'Est. Volume',
   notes: 'Notes',
+  stage: 'Stage',
 }
 
 export const FIELD_SYNONYMS: Record<Field, string[]> = {
@@ -44,6 +46,7 @@ export const FIELD_SYNONYMS: Record<Field, string[]> = {
   type: ['type', 'partner merchant'],
   estimatedVolume: ['estimated volume', 'value', 'volume', 'amount', 'deal value', 'expected volume'],
   notes: ['notes', 'note', 'comments', 'comment', 'remarks', 'remark'],
+  stage: ['status', 'lead status', 'status of lead', 'final status', 'final lead status', 'stage'],
 }
 
 export function normalizeHeader(h: string) {

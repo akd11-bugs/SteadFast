@@ -4,13 +4,21 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
-  PointerSensor,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCenter,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { SortableContext, useSortable, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
+import {
+  SortableContext,
+  useSortable,
+  horizontalListSortingStrategy,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import {
@@ -74,7 +82,11 @@ export function DataTable<TRow>({
   }
 }) {
   const router = useRouter()
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   const columnsByKey = new Map(allColumns.map((c) => [c.key, c]))
   const visibleColumns = visibleColumnKeys.map((k) => columnsByKey.get(k)).filter((c): c is TableColumn<TRow> => !!c)

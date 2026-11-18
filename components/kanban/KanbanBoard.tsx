@@ -5,14 +5,16 @@ import { useRouter } from 'next/navigation'
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCorners,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { KanbanColumn } from './KanbanColumn'
 import { LeadCard } from './LeadCard'
 import { LeadDetailDialog } from '@/components/leads/LeadDetailDialog'
@@ -46,7 +48,20 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
     setLeads(initialLeads)
   }, [initialLeads])
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  // Mouse drags start after 6px. Touch drags need a 200ms long-press, so a
+  // normal swipe across cards still scrolls the board instead of grabbing a
+  // card (cards use touch-action: manipulation, not none, for that reason).
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  function openMove(lead: Lead, target: BoardColumnKey) {
+    if (boardColumnFor(lead) === target) return
+    const targetLabel = columns.find((c) => c.key === target)?.label ?? target
+    setStageChange({ leadId: lead.id, target, targetLabel })
+  }
 
   const leadsByColumn = useMemo(() => {
     const map = new Map<BoardColumnKey, Lead[]>()
@@ -111,7 +126,13 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
               const columnLeads = leadsByColumn.get(column.key) ?? []
               return (
                 <SortableContext key={column.key} items={columnLeads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
-                  <KanbanColumn column={column} leads={columnLeads} onCardClick={setDetailLead} />
+                  <KanbanColumn
+                    column={column}
+                    leads={columnLeads}
+                    onCardClick={setDetailLead}
+                    moveTargets={columns}
+                    onMove={openMove}
+                  />
                 </SortableContext>
               )
             })}

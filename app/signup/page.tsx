@@ -4,14 +4,18 @@ import { neonAuth } from '@/lib/auth'
 import { resolveSession } from '@/lib/session'
 import { SignupEmailForm } from '@/components/auth/SignupEmailForm'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { AuthAlternative, AuthGoogleButton, AuthNotice } from '@/components/auth/AuthControls'
+import { EMAIL_AUTH_ENABLED } from '@/lib/authFlags'
 import { BRAND_NAME } from '@/lib/branding'
 
 // Google-first, mirroring app/login/page.tsx — Google sign-in already proves
 // email ownership, so a brand-new identity lands on /account-not-found which
 // handles org creation / join-request directly. The email+password path
-// below is the de-emphasized fallback, still gated behind its own
-// SignupToken link-verification step since typing an email proves nothing.
-export default async function SignupPage() {
+// below is the de-emphasized fallback (currently switched off, see
+// lib/authFlags.ts), gated behind its own SignupToken link-verification
+// step since typing an email proves nothing.
+export default async function SignupPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+  const { error } = await searchParams
   const googleEnabled = !!process.env.GOOGLE_CLIENT_ID
 
   const resolution = await resolveSession()
@@ -48,27 +52,25 @@ export default async function SignupPage() {
         </>
       }
     >
-      {googleEnabled && (
-        <form action={signUpWithGoogle}>
-          <button
-            type="submit"
-            className="w-full rounded-full bg-white px-5 py-2.5 text-sm font-medium text-[#07080c] transition-transform hover:scale-[1.01] active:scale-[0.99]"
-          >
-            Sign up with Google
-          </button>
-        </form>
-      )}
+      {error && <AuthNotice tone="error">Google sign-up didn’t go through — please try again.</AuthNotice>}
 
-      <details className={googleEnabled ? 'group mt-5' : 'group'} open={!googleEnabled}>
-        {googleEnabled && (
-          <summary className="cursor-pointer list-none text-center text-sm text-white/45 underline underline-offset-4 hover:text-white/70">
-            Use email instead
-          </summary>
-        )}
-        <div className={googleEnabled ? 'mt-4' : ''}>
+      {googleEnabled && <AuthGoogleButton action={signUpWithGoogle} label="Sign up with Google" />}
+
+      {/* Email sign-up mails a magic link, which can't be delivered yet —
+          see lib/authFlags.ts. */}
+      {EMAIL_AUTH_ENABLED ? (
+        googleEnabled ? (
+          <AuthAlternative summary="Use email instead">
+            <SignupEmailForm />
+          </AuthAlternative>
+        ) : (
           <SignupEmailForm />
-        </div>
-      </details>
+        )
+      ) : (
+        !googleEnabled && (
+          <AuthNotice tone="info">Sign-up isn’t available right now. Ask your workspace admin for an invite.</AuthNotice>
+        )
+      )}
     </AuthShell>
   )
 }

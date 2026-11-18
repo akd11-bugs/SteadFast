@@ -24,6 +24,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { SavedViewsMenu, type LeadViewFilters } from '@/components/leads/SavedViewsMenu'
 import { DataTable, type Calculation } from '@/components/shared/DataTable'
+import { LeadListItemCard } from '@/components/leads/LeadListItemCard'
 import { getLeadColumns } from '@/lib/tableColumns'
 import {
   boardColumnFor,
@@ -66,6 +67,7 @@ export function LeadsTable({
   const router = useRouter()
   const { columns, pendingSubStatuses } = usePipelineConfig()
   const columnLabels = useMemo(() => Object.fromEntries(columns.map((c) => [c.key, c.label])), [columns])
+  const columnByKey = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns])
   const columnKeys = useMemo(() => columns.map((c) => c.key), [columns])
   const pendingSubStatusKeys = useMemo(() => pendingSubStatuses.map((s) => s.key), [pendingSubStatuses])
   const [search, setSearch] = useState(initialQuery ?? '')
@@ -299,6 +301,30 @@ export function LeadsTable({
         </div>
       )}
 
+      {/* Below md an 8+ column table is unreadable even with sideways scroll,
+          so phones get one card per lead instead. Selection is shared, so the
+          bulk-action bar above works the same on both. */}
+      <div className="space-y-2 md:hidden">
+        {filtered.length === 0 ? (
+          <p className="rounded-md border px-3 py-8 text-center text-sm text-muted-foreground">No leads match these filters.</p>
+        ) : (
+          filtered.map((l) => {
+            const col = columnByKey.get(boardColumnFor(l))
+            return (
+              <LeadListItemCard
+                key={l.id}
+                lead={l}
+                stageLabel={col?.label ?? l.stage}
+                stageColor={col?.color}
+                selected={selected.has(l.id)}
+                onToggleSelected={() => toggleOne(l.id)}
+              />
+            )
+          })
+        )}
+      </div>
+
+      <div className="hidden md:block">
       <DataTable
         tableId="leads-table"
         rows={filtered}
@@ -316,6 +342,7 @@ export function LeadsTable({
           allSelected: allVisibleSelected,
         }}
       />
+      </div>
 
       <Dialog open={bulkRemarkOpen} onOpenChange={(o) => { setBulkRemarkOpen(o); if (!o) setBulkRemark('') }}>
         <DialogContent className="max-w-md">

@@ -11,6 +11,10 @@ import { BRAND_NAME } from '@/lib/branding'
 //
 // The panel is decorative and hidden below lg, so a phone gets the form at
 // full width instead of a cropped gradient above it.
+//
+// Both pages build their form only from the pieces in ./AuthControls (button,
+// field, notice, disclosure), so they can't drift apart in shape, color or
+// spacing again.
 export function AuthShell({
   title,
   subtitle,
@@ -40,8 +44,10 @@ export function AuthShell({
           <div className="w-full max-w-sm">
             <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
             <p className="mt-2 text-sm text-white/55">{subtitle}</p>
-            <div className="mt-7">{children}</div>
-            {footer && <div className="mt-6 text-center text-sm text-white/55">{footer}</div>}
+            <div className="mt-7 space-y-4">{children}</div>
+            {footer && (
+              <div className="mt-8 border-t border-white/[0.07] pt-6 text-center text-sm text-white/55">{footer}</div>
+            )}
           </div>
         </div>
       </div>

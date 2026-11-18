@@ -16,7 +16,7 @@ export default async function PipelinePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pipeline</h1>
         <p className="text-sm text-muted-foreground">
-          Drag a lead between columns to change its stage. Stale leads (no activity past 21 days) are flagged.
+          Drag a lead between columns, or use the ⇄ button on a card, to change its stage. Stale leads (no activity past 21 days) are flagged.
         </p>
       </div>
       <KanbanBoard initialLeads={leads as any} />

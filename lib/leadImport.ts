@@ -2,6 +2,8 @@ import { prisma } from '@/lib/db'
 import { SOURCES, LEAD_TYPES, BUSINESS_TYPES, isValidWebsite, type LeadSource, type LeadType, type BusinessType } from '@/lib/types'
 import { normalizeCompanyName, findOrCreateCompany, findOrCreatePerson } from '@/lib/company'
 import { mergeCustomFields } from '@/lib/leadCustomFields'
+import { getStageDefinitions } from '@/lib/pipelineConfig'
+import { normalizeHeader } from '@/lib/headerMapping'
 
 export interface ImportRow {
   poc?: string
@@ -15,6 +17,13 @@ export interface ImportRow {
   type?: string
   estimatedVolume?: string | number
   notes?: string
+  // Raw sheet/CSV value from a Status/Stage-like column — unvalidated. Empty
+  // or absent is the existing no-op case (defaults to 'new', no issue
+  // recorded). A non-empty value that doesn't match a real StageDefinition
+  // key/label still creates the lead (defaulted to 'new') but records a
+  // JobRunIssue (kind: 'stage_unmapped') so it can be reviewed and corrected
+  // later via the sync-review screen.
+  stage?: string
   // Admin-defined LeadFieldDefinition values, keyed the same way
   // CustomFieldsSection/mergeCustomFields already expect — populated by
   // autoMapCustomFields() in the CSV dialog and the sheet-sync route when a
@@ -54,7 +63,18 @@ function normalizeBusinessType(value: string | undefined): BusinessType | null {
 // Shared by the CSV import route and the Google Sheets sync cron route — both
 // end up with the same shape of loosely-typed rows and need identical
 // validation/dedupe/create behavior so they can never quietly drift apart.
-export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId: string): Promise<ImportResult> {
+//
+// `jobRunId` is undefined for the manual-CSV-dialog caller (no JobRun exists
+// for that path, and it doesn't need this feature) and set for the cron
+// caller — when set, skipped rows and stage_unmapped rows are persisted as
+// JobRunIssue rows so they survive past the HTTP response, reviewable later
+// from the Ops "needs review" screen.
+export async function importLeadRows(
+  rows: unknown[],
+  owner: ImportOwner,
+  orgId: string,
+  jobRunId?: string,
+): Promise<ImportResult> {
   const skipped: { row: number; reason: string }[] = []
   const customFieldWarnings: { row: number; reason: string }[] = []
   const toCreate: {
@@ -70,6 +90,7 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
     type: LeadType
     estimatedVolume: number
     notes: string
+    rawStage: string
     customFields: Record<string, unknown>
   }[] = []
 
@@ -109,6 +130,7 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
       type: normalizeType(row.type),
       estimatedVolume: Number(row.estimatedVolume) || 0,
       notes: row.notes ? String(row.notes).trim() : '',
+      rawStage: row.stage ? String(row.stage).trim() : '',
       customFields: typeof row.customFields === 'object' && row.customFields !== null ? row.customFields : {},
     })
   })
@@ -190,11 +212,36 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
     return true
   })
 
+  // Org-scoped lookup of the real pipeline stages, used below to resolve
+  // each row's raw stage text — same exact-then-label matching every other
+  // field in headerMapping.ts already uses, case-insensitive via the same
+  // normalizeHeader() that file exports. Only fetched once per batch, and
+  // only matters when at least one row actually carries a stage value.
+  const stageDefs = finalRows.some((r) => r.rawStage) ? await getStageDefinitions(orgId) : []
+  const stageByNormalizedKey = new Map(stageDefs.map((s) => [normalizeHeader(s.key), s.key]))
+  const stageByNormalizedLabel = new Map(stageDefs.map((s) => [normalizeHeader(s.label), s.key]))
+
+  function resolveStage(rawStage: string): { stage: string | null; matched: boolean } {
+    if (!rawStage) return { stage: null, matched: true } // absent/empty — existing no-op, defaults to 'new', no issue
+    const normalized = normalizeHeader(rawStage)
+    const matchedKey = stageByNormalizedKey.get(normalized) ?? stageByNormalizedLabel.get(normalized) ?? null
+    return { stage: matchedKey, matched: matchedKey !== null }
+  }
+
+  const issuesToCreate: {
+    orgId: string
+    row: number
+    kind: 'skip' | 'stage_unmapped'
+    reason: string
+    rawValue?: string
+    leadId?: string
+  }[] = []
+
   if (finalRows.length > 0) {
     // One row at a time (not createMany) — each new Person must be
     // find-or-created, which createMany can't do inline.
     for (const r of finalRows) {
-      const { row: _row, company: _companyName, poc, companyId, customFields, ...rest } = r
+      const { row: _row, company: _companyName, poc, companyId, customFields, rawStage, ...rest } = r
       const person = poc ? await findOrCreatePerson(orgId, companyId, poc) : null
       // Best-effort, same "drop, don't fail the row" philosophy as the
       // website/businessType handling above — a custom field whose value
@@ -208,11 +255,12 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
           customFieldWarnings.push({ row: r.row, reason: err instanceof Error ? err.message : String(err) })
         }
       }
-      await prisma.lead.create({
+      const { stage: matchedStage, matched } = resolveStage(rawStage)
+      const lead = await prisma.lead.create({
         data: {
           ...rest,
           orgId,
-          stage: 'new',
+          stage: matchedStage ?? 'new',
           ownerId: owner.id,
           ownerName: owner.name,
           companyId,
@@ -220,10 +268,40 @@ export async function importLeadRows(rows: unknown[], owner: ImportOwner, orgId:
           customFieldsJson,
         },
       })
+
+      // Present and non-empty, but didn't match any real StageDefinition —
+      // the lead is still created (defaulted to 'new', never blocks
+      // creation), but this is recorded so it can be reviewed/corrected
+      // later via the sync-review screen, rather than silently lost.
+      if (!matched) {
+        issuesToCreate.push({
+          orgId,
+          row: r.row,
+          kind: 'stage_unmapped',
+          reason: `Sheet value "${rawStage}" did not match any pipeline stage`,
+          rawValue: rawStage,
+          leadId: lead.id,
+        })
+      }
     }
   }
 
   skipped.sort((a, b) => a.row - b.row)
   customFieldWarnings.sort((a, b) => a.row - b.row)
+
+  // Only the cron caller passes jobRunId — the manual CSV dialog has no
+  // JobRun to attach to and doesn't need post-hoc review (its result is
+  // already shown live in the dialog).
+  if (jobRunId) {
+    for (const s of skipped) {
+      issuesToCreate.push({ orgId, row: s.row, kind: 'skip', reason: s.reason })
+    }
+    if (issuesToCreate.length > 0) {
+      await prisma.jobRunIssue.createMany({
+        data: issuesToCreate.map((issue) => ({ ...issue, jobRunId })),
+      })
+    }
+  }
+
   return { created: finalRows.length, skipped, customFieldWarnings }
 }

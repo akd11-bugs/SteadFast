@@ -28,9 +28,17 @@ export function isPublicPathPrefix(pathname: string): boolean {
 export function isSafeRedirectTarget(target: string | undefined): target is string {
   if (!target) return false
   if (!target.startsWith('/') || target.startsWith('//')) return false
-  if (target === '/login') return false
-  // Strip query/hash before checking against the public-path list — a
-  // pathname-only check must not be fooled by e.g. "/signup?x=/leads".
-  const pathname = target.split(/[?#]/)[0]
-  return !isPublicPathPrefix(pathname)
+  // Resolve it the way a browser would: "/\evil.com" or "/\t/evil.com" pass
+  // the prefix checks above but leave the origin. Anything that does is out.
+  const base = 'http://same-origin.invalid'
+  let url: URL
+  try {
+    url = new URL(target, base)
+  } catch {
+    return false
+  }
+  if (url.origin !== base) return false
+  if (url.pathname === '/login') return false
+  // Pathname only, so e.g. "/signup?x=/leads" is still checked as /signup.
+  return !isPublicPathPrefix(url.pathname)
 }

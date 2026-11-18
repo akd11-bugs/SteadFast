@@ -5,6 +5,7 @@ import { readJsonBody } from '@/lib/http'
 import { isValidEmail } from '@/lib/types'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { generateRandomToken } from '@/lib/crypto'
+import { EMAIL_AUTH_ENABLED } from '@/lib/authFlags'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,11 @@ const RESEND_COOLDOWN_MS = 2 * 60 * 1000
 // they still land as a 'pending' account with no access until an admin
 // approves them from Organisation. Excluded from proxy.ts's auth wall.
 export async function POST(req: Request) {
+  // Off until outbound email works (lib/authFlags.ts). Refused before any
+  // token is written, so nothing is left behind for a link that can't go out.
+  if (!EMAIL_AUTH_ENABLED) {
+    return NextResponse.json({ error: 'Email sign-up is unavailable — sign up with Google instead' }, { status: 503 })
+  }
   const ip = getClientIp(req)
   const rateLimit = checkRateLimit(`signup-request:${ip}`, 5, 60 * 60 * 1000)
   if (!rateLimit.allowed) {

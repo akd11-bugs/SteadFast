@@ -38,6 +38,11 @@ export function PipelineFunnel({ data, columns }: { data: PipelineData[]; column
         <CardTitle className="text-base">Pipeline by stage</CardTitle>
       </CardHeader>
       <CardContent>
+        {/* Stage count is per-org and unbounded; below ~64px a column's
+            labels collide, so the chart and both label rows scroll together
+            instead of squeezing on a phone. */}
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div style={{ minWidth: `${rows.length * 64}px` }}>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={rows} margin={{ top: 24, right: 8, left: 0, bottom: 8 }}>
@@ -92,6 +97,8 @@ export function PipelineFunnel({ data, columns }: { data: PipelineData[]; column
               {totalLeads === 0 ? '—' : `${Math.round((r.count / totalLeads) * 100)}% of pipeline`}
             </Link>
           ))}
+        </div>
+        </div>
         </div>
         <p className="mt-2 text-[10px] text-muted-foreground">
           Share of all current leads sitting in each stage right now — a snapshot of the current pipeline, not a cohort trend over time.

@@ -25,6 +25,13 @@ export const dynamic = 'force-dynamic'
 //     ("email already exists") and she'd be stuck forever with no User row.
 //     For this case we skip password/identity creation entirely and just
 //     attach the invite's org/role to her existing identity's email.
+// Puts a claimed one-person invite back to pending so the same code can be
+// retried. A reusable link was never claimed, so there is nothing to undo.
+async function releaseInvite(invite: { id: string; isReusable: boolean }) {
+  if (invite.isReusable) return
+  await prisma.invite.update({ where: { id: invite.id }, data: { status: 'pending', redeemedAt: null } })
+}
+
 export async function POST(req: Request) {
   const ip = getClientIp(req)
   const rateLimit = checkRateLimit(`invite-redeem:${ip}`, 20, 15 * 60 * 1000)
@@ -58,14 +65,40 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
   }
 
-  const existingUser = await prisma.user.findUnique({ where: { email } })
-  if (existingUser) {
-    return NextResponse.json({ error: 'That email is already registered — log in instead' }, { status: 409 })
-  }
-
+  // Code first: checking the email before it let anyone learn which emails
+  // are registered by posting a junk code (409 vs 410).
   const found = await prisma.invite.findUnique({ where: { code } })
   if (!found || found.status !== 'pending') {
     return NextResponse.json({ error: 'Invalid or already-used invite code' }, { status: 410 })
+  }
+
+  // An existing account may switch workspaces with an invite, but only
+  // while signed in as that email (the session proves ownership). Signed
+  // out, it must sign in first — otherwise anyone could move anyone.
+  const existingUser = await prisma.user.findUnique({ where: { email } })
+  if (existingUser && !sessionEmail) {
+    return NextResponse.json(
+      { error: 'That email already has an account. Sign in with it, then open this invite link again.' },
+      { status: 409 },
+    )
+  }
+  if (existingUser?.orgId === found.orgId) {
+    return NextResponse.json({ error: "You're already in this workspace" }, { status: 409 })
+  }
+  // shortcut: one org per user (User.email is unique), so joining moves the
+  // account; its old workspace and leads stay behind. Multi-org membership
+  // replaces this when built.
+  if (existingUser?.role === 'admin') {
+    const [otherAdmins, otherMembers] = await Promise.all([
+      prisma.user.count({ where: { orgId: existingUser.orgId, role: 'admin', isActive: true, id: { not: existingUser.id } } }),
+      prisma.user.count({ where: { orgId: existingUser.orgId, isActive: true, id: { not: existingUser.id } } }),
+    ])
+    if (otherAdmins === 0 && otherMembers > 0) {
+      return NextResponse.json(
+        { error: "You're the only admin of your current workspace. Make someone else admin there first, then open this link again." },
+        { status: 409 },
+      )
+    }
   }
 
   // Claims the invite atomically (closes the race where two requests redeem
@@ -96,9 +129,10 @@ export async function POST(req: Request) {
     }
   }
 
-  // A reusable link doesn't name anyone in advance — the redeemer supplies
-  // their own name. A regular, one-person invite already has it.
-  const redeemerName = invite.isReusable ? String(body.name ?? '').trim() : invite.name
+  // The redeemer's own name wins (the form requires it); a one-person
+  // invite falls back to the name the admin typed. A reusable link names
+  // nobody in advance, so there it is the only source.
+  const redeemerName = String(body.name ?? '').trim() || invite.name || existingUser?.name
   if (!redeemerName) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
@@ -116,16 +150,40 @@ export async function POST(req: Request) {
       // created — release it back to 'pending' so the same code can be
       // retried instead of being silently burned. (A no-op for a reusable
       // link, which was never flipped to begin with.)
-      if (!invite.isReusable) {
-        await prisma.invite.update({ where: { id: invite.id }, data: { status: 'pending', redeemedAt: null } })
-      }
-      return NextResponse.json({ error: signUp.message }, { status: 409 })
+      await releaseInvite(invite)
+      // Usually "already exists": the email has a login (e.g. an earlier
+      // Google sign-in) but no account here. The signed-in branch above
+      // finishes the join, so send them there instead of a dead end.
+      const message = /exist/i.test(signUp.message)
+        ? 'This email already has a login. Sign in with it first (Google or password), then open this invite link again.'
+        : signUp.message
+      return NextResponse.json({ error: message }, { status: 409 })
     }
   }
 
-  const user = await prisma.user.create({
-    data: { orgId: invite.orgId, name: redeemerName, email, passwordHash: null, role: invite.role, isActive: true },
-  })
+  let user
+  try {
+    user = existingUser
+      ? await prisma.user.update({
+          where: { id: existingUser.id },
+          data: { orgId: invite.orgId, role: invite.role, isActive: true },
+        })
+      : await prisma.user.create({
+          data: { orgId: invite.orgId, name: redeemerName, email, passwordHash: null, role: invite.role, isActive: true },
+        })
+  } catch (err: unknown) {
+    // The login may already exist at this point, so the code must not be
+    // burned: release it and say how to finish (sign in, reopen the link).
+    await releaseInvite(invite)
+    if ((err as { code?: string })?.code === 'P2002') {
+      return NextResponse.json({ error: 'That email is already registered — log in instead' }, { status: 409 })
+    }
+    console.error('[invites/redeem] user.create failed', err)
+    return NextResponse.json(
+      { error: 'Your login was created but joining the workspace failed. Sign in, then open this invite link again.' },
+      { status: 500 },
+    )
+  }
   // For a reusable link, this only ever reflects the most recent redeemer —
   // the full history of everyone who's used it lives in the audit log
   // below, not this single-value pointer.
@@ -136,7 +194,7 @@ export async function POST(req: Request) {
     actorUserId: user.id,
     targetUserId: user.id,
     targetInviteId: invite.id,
-    metadata: { email },
+    metadata: existingUser ? { email, movedFromOrgId: existingUser.orgId } : { email },
   })
 
   return NextResponse.json({ ok: true })

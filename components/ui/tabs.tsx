@@ -61,7 +61,9 @@ const TabsList = React.forwardRef<
     <TabsPrimitive.List
       ref={setRefs}
       className={cn(
-        'relative inline-flex h-10 items-center justify-start gap-1 border-b border-border text-muted-foreground',
+        // max-w-full + overflow-x-auto: a row of tabs scrolls sideways at
+        // phone width instead of pushing the page wider than the viewport.
+        'relative inline-flex h-10 max-w-full items-center justify-start gap-1 overflow-x-auto overflow-y-hidden border-b border-border text-muted-foreground',
         className,
       )}
       {...props}
@@ -87,7 +89,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'relative inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:text-foreground',
+      'relative inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:text-foreground',
       className,
     )}
     {...props}

@@ -2,18 +2,33 @@
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Lead } from '@/lib/types'
-import { SOURCE_LABELS } from '@/lib/types'
+import type { Lead, BoardColumnKey } from '@/lib/types'
+import { SOURCE_LABELS, boardColumnFor } from '@/lib/types'
+import type { BoardColumn } from '@/lib/boardColumns'
 import { formatCurrency, formatRelative, cn } from '@/lib/utils'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, ArrowRightLeft } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface LeadCardProps {
   lead: Lead
   onClick: (lead: Lead) => void
   isDragging?: boolean
+  moveTargets?: BoardColumn[]
+  onMove?: (lead: Lead, target: BoardColumnKey) => void
 }
 
-export function LeadCard({ lead, onClick, isDragging }: LeadCardProps) {
+// Keeps a tap/click/keypress inside the move menu from reaching the card's
+// drag listeners or its open-detail onClick. React portal events still
+// bubble through this wrapper, so the menu items are covered too.
+const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+
+export function LeadCard({ lead, onClick, isDragging, moveTargets, onMove }: LeadCardProps) {
   const sortable = useSortable({ id: lead.id })
   const style = isDragging
     ? { opacity: 1 }
@@ -35,7 +50,7 @@ export function LeadCard({ lead, onClick, isDragging }: LeadCardProps) {
       {...(isDragging ? {} : sortable.attributes)}
       {...(isDragging ? {} : sortable.listeners)}
       className={cn(
-        'group rounded-md border bg-card shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer touch-none',
+        'group rounded-md border bg-card shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer touch-manipulation',
         sortable.isDragging && 'opacity-50'
       )}
       onClick={() => !isDragging && onClick(lead)}
@@ -60,6 +75,41 @@ export function LeadCard({ lead, onClick, isDragging }: LeadCardProps) {
               {isStale && <AlertCircle className="h-3 w-3" />}
               {lead.lastActivityAt ? formatRelative(lead.lastActivityAt) : 'no activity'}
             </span>
+            {!isDragging && moveTargets && onMove && (
+              <div
+                className="ml-auto"
+                onClick={stop}
+                onMouseDown={stop}
+                onTouchStart={stop}
+                onPointerDown={stop}
+                onKeyDown={stop}
+              >
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className="-my-1 -mr-1 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`Move ${lead.company.name} to another stage`}
+                    title="Move to stage"
+                  >
+                    <ArrowRightLeft className="h-3.5 w-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">Move to stage</DropdownMenuLabel>
+                    {moveTargets
+                      .filter((c) => c.key !== boardColumnFor(lead))
+                      .map((c) => (
+                        <DropdownMenuItem key={c.key} onSelect={() => onMove(lead, c.key)}>
+                          <span
+                            className="mr-2 h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: c.color ?? '#64748b' }}
+                            aria-hidden="true"
+                          />
+                          {c.label}
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
           </div>
         </div>
       </div>

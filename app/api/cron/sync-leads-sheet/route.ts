@@ -4,7 +4,7 @@ import { getSheetRows } from '@/lib/googleSheets'
 import { autoMapHeaders, autoMapCustomFields, normalizeHeader, FIELDS } from '@/lib/headerMapping'
 import { importLeadRows, type ImportOwner } from '@/lib/leadImport'
 import { safeEqual } from '@/lib/http'
-import { recordJobRun } from '@/lib/jobRun'
+import { startJobRun, finishJobRun } from '@/lib/jobRun'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,11 +29,15 @@ interface SyncResult {
 
 async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
   const startedAt = new Date()
+  // Started up front (not recorded once at the end) so its id exists before
+  // importLeadRows runs — JobRunIssue rows (skipped/stage_unmapped) attach to
+  // this run as they're created, mid-sync, before the final status is known.
+  const jobRunId = await startJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', startedAt })
 
   try {
     const allRows = await getSheetRows(source.spreadsheetId, source.range)
     if (allRows.length < 2) {
-      await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'success', startedAt })
+      await finishJobRun(jobRunId, { status: 'success' })
       return { source: source.label, created: 0, skipped: [], customFieldWarnings: [] }
     }
     const [headerRow, ...dataRows] = allRows
@@ -58,7 +62,7 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
     const newRows = dataRows.slice(alreadyProcessed)
 
     if (newRows.length === 0) {
-      await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'success', startedAt })
+      await finishJobRun(jobRunId, { status: 'success' })
       return { source: source.label, created: 0, skipped: [], customFieldWarnings: [] }
     }
 
@@ -114,7 +118,7 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
     const skipped: { row: number; reason: string }[] = []
     const customFieldWarnings: { row: number; reason: string }[] = []
     for (const { owner, rows, rowNumbers } of buckets.values()) {
-      const result = await importLeadRows(rows, owner, source.orgId)
+      const result = await importLeadRows(rows, owner, source.orgId, jobRunId)
       created += result.created
       for (const s of result.skipped) {
         skipped.push({ row: rowNumbers[s.row - 1] ?? s.row, reason: s.reason })
@@ -131,12 +135,12 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
     })
     await prisma.orgSheetConnector.update({ where: { orgId: source.orgId }, data: { lastSyncedAt: new Date() } })
 
-    await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'success', startedAt })
+    await finishJobRun(jobRunId, { status: 'success' })
     skipped.sort((a, b) => a.row - b.row)
     customFieldWarnings.sort((a, b) => a.row - b.row)
     return { source: source.label, created, skipped, customFieldWarnings }
   } catch (err) {
-    await recordJobRun({ orgId: source.orgId, jobKey: 'sync-leads-sheet', status: 'failure', startedAt, error: String(err) })
+    await finishJobRun(jobRunId, { status: 'failure', error: String(err) })
     console.error(`sync-leads-sheet failed (${source.label})`, err)
     return { source: source.label, created: 0, skipped: [], customFieldWarnings: [], error: String(err) }
   }

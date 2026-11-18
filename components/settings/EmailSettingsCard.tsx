@@ -1,20 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { CheckCircle2 } from 'lucide-react'
 
 export function EmailSettingsCard() {
+  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [configured, setConfigured] = useState(false)
   const [currentAddress, setCurrentAddress] = useState<string | null>(null)
-  const [emailFromAddress, setEmailFromAddress] = useState('')
-  const [appPassword, setAppPassword] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+
+  // The OAuth callback redirects back here with one of these params —
+  // refetch so the card reflects whatever actually got saved, rather than
+  // trusting the redirect alone.
+  const justConnected = searchParams.get('gmailConnected') === '1'
+  const connectError = searchParams.get('gmailError') === '1'
 
   useEffect(() => {
     fetch('/api/settings/email')
@@ -24,29 +27,7 @@ export function EmailSettingsCard() {
         setCurrentAddress(data.emailFromAddress ?? null)
       })
       .finally(() => setLoading(false))
-  }, [])
-
-  async function handleSave() {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/settings/email', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ emailFromAddress, appPassword }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? 'Could not save')
-        return
-      }
-      setConfigured(true)
-      setCurrentAddress(data.emailFromAddress)
-      setAppPassword('')
-    } finally {
-      setSaving(false)
-    }
-  }
+  }, [justConnected])
 
   async function handleRemove() {
     setSaving(true)
@@ -54,7 +35,6 @@ export function EmailSettingsCard() {
       await fetch('/api/settings/email', { method: 'DELETE' })
       setConfigured(false)
       setCurrentAddress(null)
-      setEmailFromAddress('')
     } finally {
       setSaving(false)
     }
@@ -67,46 +47,25 @@ export function EmailSettingsCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Configure a Gmail app password so emails sent by workflow rules (and future automated sends) come from your
-          own address instead of the shared mailbox.
+          Connect your own Gmail so emails sent by workflow rules (and future automated sends) come from your own
+          address instead of the shared mailbox.
         </p>
         {!loading && configured && (
           <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            Configured for {currentAddress}
+            Connected as {currentAddress}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="emailFromAddress">Gmail address</Label>
-            <Input
-              id="emailFromAddress"
-              type="email"
-              placeholder={currentAddress ?? 'you@gmail.com'}
-              value={emailFromAddress}
-              onChange={(e) => setEmailFromAddress(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="appPassword">App password</Label>
-            <Input
-              id="appPassword"
-              type="password"
-              autoComplete="off"
-              placeholder="16-character app password"
-              value={appPassword}
-              onChange={(e) => setAppPassword(e.target.value)}
-            />
-          </div>
-        </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {connectError && (
+          <p className="text-sm text-destructive">Could not connect that Gmail account — try again.</p>
+        )}
         <div className="flex gap-2">
-          <Button size="sm" onClick={handleSave} disabled={saving || !emailFromAddress || !appPassword}>
-            {saving ? 'Saving…' : 'Save'}
+          <Button size="sm" asChild>
+            <a href="/api/settings/email/oauth/start">{configured ? 'Reconnect Gmail' : 'Connect Gmail'}</a>
           </Button>
           {configured && (
             <Button size="sm" variant="outline" onClick={handleRemove} disabled={saving}>
-              Remove
+              Disconnect
             </Button>
           )}
         </div>

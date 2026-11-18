@@ -8,6 +8,9 @@ const personFindFirstMock = vi.fn()
 const personFindManyMock = vi.fn()
 const personCreateMock = vi.fn()
 const leadFieldDefinitionFindManyMock = vi.fn()
+const stageDefinitionFindManyMock = vi.fn()
+const stageDefinitionCreateManyMock = vi.fn()
+const jobRunIssueCreateManyMock = vi.fn()
 
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -27,6 +30,13 @@ vi.mock('@/lib/db', () => ({
     leadFieldDefinition: {
       findMany: (...args: unknown[]) => leadFieldDefinitionFindManyMock(...args),
     },
+    stageDefinition: {
+      findMany: (...args: unknown[]) => stageDefinitionFindManyMock(...args),
+      createMany: (...args: unknown[]) => stageDefinitionCreateManyMock(...args),
+    },
+    jobRunIssue: {
+      createMany: (...args: unknown[]) => jobRunIssueCreateManyMock(...args),
+    },
   },
 }))
 
@@ -44,10 +54,23 @@ beforeEach(() => {
   personFindManyMock.mockReset()
   personCreateMock.mockReset()
   leadFieldDefinitionFindManyMock.mockReset()
+  stageDefinitionFindManyMock.mockReset()
+  stageDefinitionCreateManyMock.mockReset()
+  jobRunIssueCreateManyMock.mockReset()
 
   leadFindManyMock.mockResolvedValue([])
-  leadCreateMock.mockResolvedValue({})
+  let nextLeadId = 1
+  leadCreateMock.mockImplementation(() => Promise.resolve({ id: `lead-${nextLeadId++}` }))
   leadFieldDefinitionFindManyMock.mockResolvedValue([])
+  stageDefinitionFindManyMock.mockResolvedValue([
+    { key: 'new', label: 'New' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'proposal', label: 'Proposal' },
+    { key: 'onboarding', label: 'Onboarding' },
+    { key: 'not_interested', label: 'Not Interested' },
+  ])
+  stageDefinitionCreateManyMock.mockResolvedValue({ count: 0 })
+  jobRunIssueCreateManyMock.mockResolvedValue({ count: 0 })
   // Stateful fake so repeat find-or-create calls for the same normalized name
   // within one test (e.g. "Acme Corp" then "ACME CORP") resolve to the one
   // company actually created, same as the real DB's unique constraint would.
@@ -199,6 +222,70 @@ describe('importLeadRows', () => {
     expect(result.customFieldWarnings).toEqual([])
     expect(leadCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ customFieldsJson: '{}' }),
+    })
+  })
+
+  describe('stage mapping', () => {
+    it('leaves stage as new and records no issue, and skips the stage-definitions lookup, when the stage column is empty/absent', async () => {
+      const result = await importLeadRows([{ company: 'Acme' }], owner, orgId, 'job-1')
+      expect(result.created).toBe(1)
+      expect(leadCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({ stage: 'new' }) })
+      expect(stageDefinitionFindManyMock).not.toHaveBeenCalled()
+      expect(jobRunIssueCreateManyMock).not.toHaveBeenCalled()
+    })
+
+    it('creates the lead with the real stage key on an exact key match (case-insensitive), no issue recorded', async () => {
+      const result = await importLeadRows([{ company: 'Acme', stage: 'ONBOARDING' }], owner, orgId, 'job-1')
+      expect(result.created).toBe(1)
+      expect(leadCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({ stage: 'onboarding' }) })
+      expect(jobRunIssueCreateManyMock).not.toHaveBeenCalled()
+    })
+
+    it('creates the lead with the real stage key on a label match (case-insensitive), no issue recorded', async () => {
+      const result = await importLeadRows([{ company: 'Acme', stage: 'not interested' }], owner, orgId, 'job-1')
+      expect(result.created).toBe(1)
+      expect(leadCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({ stage: 'not_interested' }) })
+      expect(jobRunIssueCreateManyMock).not.toHaveBeenCalled()
+    })
+
+    it('still creates the lead (defaulted to new) and records a stage_unmapped JobRunIssue when the stage value matches nothing, only when a jobRunId is passed', async () => {
+      const result = await importLeadRows([{ company: 'Acme', stage: 'Super Hot Lead' }], owner, orgId, 'job-1')
+      expect(result.created).toBe(1)
+      expect(leadCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({ stage: 'new' }) })
+      expect(jobRunIssueCreateManyMock).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            jobRunId: 'job-1',
+            orgId,
+            row: 1,
+            kind: 'stage_unmapped',
+            rawValue: 'Super Hot Lead',
+            reason: expect.stringContaining('Super Hot Lead'),
+            leadId: 'lead-1',
+          }),
+        ],
+      })
+    })
+
+    it('does not persist any JobRunIssue when no jobRunId is passed, even for an unmapped stage value', async () => {
+      const result = await importLeadRows([{ company: 'Acme', stage: 'Super Hot Lead' }], owner, orgId)
+      expect(result.created).toBe(1)
+      expect(jobRunIssueCreateManyMock).not.toHaveBeenCalled()
+    })
+
+    it('persists skipped rows as kind: skip JobRunIssue rows when a jobRunId is passed', async () => {
+      await importLeadRows([{ email: 'a@b.com' }], owner, orgId, 'job-1')
+      expect(jobRunIssueCreateManyMock).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            jobRunId: 'job-1',
+            orgId,
+            row: 1,
+            kind: 'skip',
+            reason: 'Missing required company',
+          }),
+        ],
+      })
     })
   })
 })

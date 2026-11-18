@@ -224,7 +224,12 @@ export async function importLeadRows(
   function resolveStage(rawStage: string): { stage: string | null; matched: boolean } {
     if (!rawStage) return { stage: null, matched: true } // absent/empty — existing no-op, defaults to 'new', no issue
     const normalized = normalizeHeader(rawStage)
-    const matchedKey = stageByNormalizedKey.get(normalized) ?? stageByNormalizedLabel.get(normalized) ?? null
+    // normalizeHeader keeps only a-z0-9, so "-", "✓" or a non-Latin word
+    // becomes '' and would match any stage whose label also normalizes to
+    // '' — treat it as unmatched (a review issue) instead.
+    if (!normalized) return { stage: null, matched: false }
+    // The label is what users see and type; the hidden key is the fallback.
+    const matchedKey = stageByNormalizedLabel.get(normalized) ?? stageByNormalizedKey.get(normalized) ?? null
     return { stage: matchedKey, matched: matchedKey !== null }
   }
 

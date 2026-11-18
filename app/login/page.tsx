@@ -47,7 +47,8 @@ export default async function LoginPage({
       callbackURL: redirectTo,
     })
     if (signInError || !data?.url) {
-      redirect(`/login?error=1${from ? `&from=${encodeURIComponent(from)}` : ''}`)
+      console.error('[login] Google sign-in failed', signInError)
+      redirect(`/login?error=google${from ? `&from=${encodeURIComponent(from)}` : ''}`)
     }
     redirect(data.url)
   }
@@ -57,6 +58,10 @@ export default async function LoginPage({
   // password: hiding it on a plain /login locked them out once their first
   // session ended. Only email *sign-up* is switched off (lib/authFlags.ts).
   const justSetPassword = !!redeemed || !!reset
+  // Only this page's own codes count: 'error' can also arrive from other
+  // flows (e.g. a cancelled Google consent forwarded here).
+  const passwordFailed = error === '1'
+  const googleFailed = error === 'google'
   const passwordForm = (
     <form action={login} className="space-y-3">
       <AuthField id="email" name="email" label="Email" type="email" autoComplete="email" required autoFocus={!googleEnabled} />
@@ -82,12 +87,13 @@ export default async function LoginPage({
         </>
       }
     >
-      {justSetPassword && !error && (
+      {justSetPassword && !passwordFailed && (
         <AuthNotice tone="success">
           {reset ? 'Password updated' : 'Account created'} — log in with your new password.
         </AuthNotice>
       )}
-      {error && (
+      {googleFailed && <AuthNotice tone="error">Google sign-in didn’t go through — please try again.</AuthNotice>}
+      {passwordFailed && (
         <AuthNotice tone="error">
           {reason === 'locked'
             ? 'Too many failed attempts — try again in 15 minutes.'
@@ -102,7 +108,7 @@ export default async function LoginPage({
       {googleEnabled ? (
         // Opens straight away after a failed attempt or a fresh password,
         // so the error or the form isn't hidden behind a collapsed link.
-        <AuthAlternative summary="Use a password instead" open={justSetPassword || !!error}>
+        <AuthAlternative summary="Use a password instead" open={justSetPassword || passwordFailed}>
           {passwordForm}
         </AuthAlternative>
       ) : (

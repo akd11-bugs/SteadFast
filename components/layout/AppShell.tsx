@@ -25,7 +25,7 @@ export function AppShell({
 }) {
   const pathname = usePathname()
   const isStandalonePage =
-    pathname === '/login' || pathname === '/rep' || pathname.startsWith('/rep/') || pathname.startsWith('/intake/')
+    pathname === '/login' || pathname === '/invite/redeem' || pathname === '/rep' || pathname.startsWith('/rep/') || pathname.startsWith('/intake/')
   // Hook must run before the standalone-page early return (rules of hooks) —
   // its result is simply unused for those pages, which never render Sidebar.
   const collapsed = useSidebarCollapsed()

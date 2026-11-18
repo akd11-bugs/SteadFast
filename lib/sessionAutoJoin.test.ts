@@ -32,7 +32,7 @@ beforeEach(() => {
 
 describe('resolveSession — domain auto-join', () => {
   it('auto-creates a sales-role User the first time a verified identity domain-matches an existing org', async () => {
-    getSessionMock.mockResolvedValue({ data: { user: { email: 'new@acme.com', name: 'New Rep' } } })
+    getSessionMock.mockResolvedValue({ data: { user: { email: 'new@acme.com', name: 'New Rep', emailVerified: true } } })
     userFindUniqueMock.mockResolvedValueOnce(null) // no existing User row yet
     findOrgByEmailDomainMock.mockResolvedValue({ id: 'org-acme', name: 'Acme' })
     const created = { id: 'u-new', orgId: 'org-acme', email: 'new@acme.com', name: 'New Rep', role: 'sales', isActive: true }
@@ -47,7 +47,7 @@ describe('resolveSession — domain auto-join', () => {
   })
 
   it('does not auto-join when no org matches the email domain — falls through to no-app-user', async () => {
-    getSessionMock.mockResolvedValue({ data: { user: { email: 'nobody@personalmail.com', name: 'Nobody' } } })
+    getSessionMock.mockResolvedValue({ data: { user: { email: 'nobody@personalmail.com', name: 'Nobody', emailVerified: true } } })
     userFindUniqueMock.mockResolvedValueOnce(null)
     findOrgByEmailDomainMock.mockResolvedValue(null)
 
@@ -58,7 +58,7 @@ describe('resolveSession — domain auto-join', () => {
   })
 
   it('falls back to re-reading the row on a concurrent-creation race (unique constraint) instead of throwing', async () => {
-    getSessionMock.mockResolvedValue({ data: { user: { email: 'race@acme.com', name: 'Race' } } })
+    getSessionMock.mockResolvedValue({ data: { user: { email: 'race@acme.com', name: 'Race', emailVerified: true } } })
     userFindUniqueMock.mockResolvedValueOnce(null) // first lookup: not found yet
     findOrgByEmailDomainMock.mockResolvedValue({ id: 'org-acme', name: 'Acme' })
     const raceError = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'x' })
@@ -69,6 +69,18 @@ describe('resolveSession — domain auto-join', () => {
     const result = await resolveSession()
 
     expect(result).toEqual({ kind: 'ok', user: winner })
+  })
+
+  it('never auto-joins an unverified (password) identity, even when the domain matches', async () => {
+    getSessionMock.mockResolvedValue({ data: { user: { email: 'bob@acme.com', name: 'Bob', emailVerified: false } } })
+    userFindUniqueMock.mockResolvedValueOnce(null)
+    findOrgByEmailDomainMock.mockResolvedValue({ id: 'org-acme', name: 'Acme' })
+
+    const result = await resolveSession()
+
+    expect(findOrgByEmailDomainMock).not.toHaveBeenCalled()
+    expect(userCreateMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ kind: 'no-app-user' })
   })
 
   it('skips auto-join entirely when a User row already exists for that email', async () => {

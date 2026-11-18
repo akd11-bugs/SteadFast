@@ -17,6 +17,11 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   const { data } = await neonAuth.getSession()
   if (!data?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // A password identity can exist for an email nobody proved they own; an
+  // org founded on it would claim that company's domain for auto-join.
+  if (!data.user.emailVerified) {
+    return NextResponse.json({ error: 'Sign in with Google to create a workspace, or ask an admin for an invite link.' }, { status: 403 })
+  }
   const email = data.user.email.trim().toLowerCase()
 
   const existingUser = await prisma.user.findUnique({ where: { email } })

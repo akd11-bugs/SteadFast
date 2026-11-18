@@ -182,12 +182,14 @@ describe('evaluateStageRules', () => {
       expect(sendEmailAsMock).not.toHaveBeenCalled()
     })
 
-    it('propagates a send failure instead of swallowing it, and does not log an activity for a send that never went out', async () => {
-      findManyMock.mockResolvedValue([emailRule()])
-      sendEmailAsMock.mockRejectedValue(new Error('SMTP auth failed'))
-      await expect(evaluateStageRules(makeLead(), 'qualified')).rejects.toThrow('SMTP auth failed')
-      expect(activityCreateMock).not.toHaveBeenCalled()
-      expect(leadUpdateMock).not.toHaveBeenCalled()
+    it('records a failed send as a visible "failed" note, never as "Sent", and keeps running the other rules', async () => {
+      findManyMock.mockResolvedValue([emailRule(), emailRule({ id: 'rule-2' })])
+      sendEmailAsMock.mockRejectedValueOnce(new Error('SMTP auth failed')).mockResolvedValueOnce({ id: 'm-2' })
+      await expect(evaluateStageRules(makeLead(), 'qualified')).resolves.toBeUndefined()
+      expect(sendEmailAsMock).toHaveBeenCalledTimes(2)
+      const descriptions = activityCreateMock.mock.calls.map((c) => (c[0] as { data: { type: string; description: string } }).data)
+      expect(descriptions[0]).toMatchObject({ type: 'note', description: expect.stringContaining('SMTP auth failed') })
+      expect(descriptions[1]).toMatchObject({ type: 'email', description: expect.stringContaining('Sent:') })
     })
   })
 

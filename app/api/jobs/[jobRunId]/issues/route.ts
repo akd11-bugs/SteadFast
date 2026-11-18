@@ -38,7 +38,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ jobRunI
 
   const issues = await prisma.jobRunIssue.findMany({
     where: { jobRunId, resolvedAt: null },
-    include: { lead: { include: { company: true, person: true } } },
+    // Only the two names the review panel shows, not whole lead rows.
+    include: { lead: { select: { company: { select: { name: true } }, person: { select: { name: true } } } } },
     orderBy: { row: 'asc' },
   })
 

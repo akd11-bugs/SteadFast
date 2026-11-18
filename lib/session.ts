@@ -95,9 +95,9 @@ async function resolveDevBypass(): Promise<SessionResolution | null> {
   return { kind: 'ok', user: appUser }
 }
 
-// A verified Neon Auth identity (so this is never reachable by just typing
-// an email somewhere — she already proved she owns it, via Google or a
-// password she set) whose domain matches a real, already-registered org
+// A verified Neon Auth identity (emailVerified — in practice Google; the
+// caller checks it, since a password identity can be made for any typed
+// address) whose domain matches a real, already-registered org
 // joins instantly as 'sales' — no admin approval step, since the domain
 // match is itself the authorization: anyone at that company's own email
 // domain is assumed to belong there. An admin can still change her role or
@@ -130,7 +130,10 @@ export const resolveSession = cache(async (): Promise<SessionResolution> => {
 
   const email = data.user.email.trim().toLowerCase()
   let appUser = await prisma.user.findUnique({ where: { email } })
-  if (!appUser) appUser = await autoJoinByEmailDomain(email, data.user.name ?? '')
+  // Only a verified email (Google) may claim a domain. A password identity
+  // can be created for any typed address (invite redeem, Neon's public
+  // sign-up endpoint), so trusting it would let anyone join any company.
+  if (!appUser && data.user.emailVerified) appUser = await autoJoinByEmailDomain(email, data.user.name ?? '')
   if (!appUser) return { kind: 'no-app-user' }
   if (!appUser.isActive) return { kind: 'inactive' }
   return { kind: 'ok', user: appUser }

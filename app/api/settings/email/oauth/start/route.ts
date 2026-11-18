@@ -31,7 +31,10 @@ export async function GET(req: Request) {
   try {
     client = gmailSendOAuthClient(req)
   } catch {
-    return NextResponse.json({ error: 'Gmail sending is not configured on the server' }, { status: 503 })
+    // Back to Settings with the card's error banner, not a raw JSON page.
+    const settingsUrl = new URL('/settings', req.url)
+    settingsUrl.searchParams.set('gmailError', '1')
+    return NextResponse.redirect(settingsUrl)
   }
 
   const state = generateRandomToken(16)

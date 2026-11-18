@@ -44,7 +44,7 @@ export function SyncReviewPanel({ jobRunId }: { jobRunId: string }) {
     setError(null)
     try {
       const res = await fetch(`/api/jobs/${jobRunId}/issues`)
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setError(data.error ?? 'Could not load issues')
         return
@@ -89,6 +89,16 @@ export function SyncReviewPanel({ jobRunId }: { jobRunId: string }) {
     } finally {
       setResolving(null)
     }
+  }
+
+  // A failed first load would otherwise spin forever: show why, and retry.
+  if (issues === null && error) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12 text-sm">
+        <p role="alert" className="text-destructive">{error}</p>
+        <Button size="sm" variant="outline" onClick={load}>Try again</Button>
+      </div>
+    )
   }
 
   if (issues === null) {

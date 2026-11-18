@@ -61,7 +61,17 @@ export async function evaluateStageRules(lead: Lead, newStage: string): Promise<
   for (const rule of rules) {
     const trigger = parseJson<StageChangedTrigger>(rule.triggerConfig)
     if (trigger?.toStage !== newStage) continue
-    await runAction(rule, lead)
+    // One failing rule must not stop the others, and the failure must be
+    // visible on the lead, not only in the server log.
+    try {
+      await runAction(rule, lead)
+    } catch (err) {
+      console.error(`[workflow] rule ${rule.id} failed`, err)
+      await logAutomationActivity(lead, rule, {
+        type: 'note',
+        description: `Automation failed (${rule.actionType}) — nothing was sent: ${err instanceof Error ? err.message : String(err)}`,
+      }).catch(() => undefined)
+    }
   }
 }
 
@@ -94,9 +104,8 @@ async function runAction(rule: WorkflowRule, lead: Lead): Promise<void> {
     }
     if (!to) return
 
-    // Only log once the send actually succeeds — if sendEmailAs throws, let
-    // it propagate (caught by evaluateStageRules' caller in
-    // lib/leadStage.ts) rather than record an email that never went out.
+    // Only log "Sent" once the send actually succeeds — if sendEmailAs
+    // throws, evaluateStageRules records a "failed" note instead.
     await sendEmailAs(rule.ownerId, { to, subject: config.subject, body: config.body })
 
     const descriptionPrefix = sentToOwner ? 'Notified owner: ' : 'Sent: '

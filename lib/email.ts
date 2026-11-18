@@ -107,8 +107,18 @@ function toBase64Url(input: string): string {
 // MIME headers need encoded-word escaping for any non-ASCII subject; this
 // app's subjects/bodies are plain operator-authored text (workflow rule
 // config, not user-supplied HTML), so a minimal RFC 2822 message is enough.
+// shortcut: per-process cache, never evicted except on a failed refresh; fine
+// at tens of connected users, add an LRU if that grows to thousands.
+const gmailClients = new Map<string, OAuth2Client>()
+
+// A CR or LF inside a header value would start a new header (e.g. an
+// injected "Bcc:"), so header values are flattened to one line. The subject
+// is RFC 2047 encoded, which also keeps non-ASCII subjects readable.
+const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ')
+
 function buildRawMessage(from: string, input: SendEmailInput): string {
-  const headers = [`From: ${from}`, `To: ${input.to}`, `Subject: ${input.subject}`, 'Content-Type: text/plain; charset="UTF-8"']
+  const subject = `=?UTF-8?B?${Buffer.from(oneLine(input.subject), 'utf8').toString('base64')}?=`
+  const headers = [`From: ${oneLine(from)}`, `To: ${oneLine(input.to)}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset="UTF-8"']
   return toBase64Url(`${headers.join('\r\n')}\r\n\r\n${input.body}`)
 }
 
@@ -138,15 +148,29 @@ export async function sendEmailAs(userId: string, input: SendEmailInput): Promis
     return sendEmail(input, user.orgId)
   }
 
-  const client = new OAuth2Client({ clientId, clientSecret })
-  client.setCredentials({ refresh_token: refreshToken })
+  // One client per refresh token: it caches the access token until expiry
+  // and shares an in-flight refresh, so a bulk stage change doesn't fire one
+  // token refresh per lead. Keyed by the token, so a reconnect misses.
+  let client = gmailClients.get(refreshToken)
+  if (!client) {
+    client = new OAuth2Client({ clientId, clientSecret })
+    client.setCredentials({ refresh_token: refreshToken })
+    gmailClients.set(refreshToken, client)
+  }
 
   let accessToken: string | null | undefined
   try {
     accessToken = (await client.getAccessToken()).token
-  } catch {
-    // Refresh token rejected/revoked server-side (user disconnected from
-    // Google's end, or it expired) — same fallback as a decrypt failure.
+  } catch (err) {
+    gmailClients.delete(refreshToken)
+    console.error('[email] Gmail token refresh failed', userId, err)
+    // Revoked or expired for good: clear the connection so Settings shows
+    // "not connected" and the user reconnects, instead of failing forever.
+    if (String(err).includes('invalid_grant')) {
+      await prisma.user
+        .update({ where: { id: userId }, data: { gmailRefreshTokenEnc: null, emailConfiguredAt: null } })
+        .catch(() => undefined)
+    }
     return sendEmail(input, user.orgId)
   }
   if (!accessToken) return sendEmail(input, user.orgId)
@@ -155,6 +179,7 @@ export async function sendEmailAs(userId: string, input: SendEmailInput): Promis
     method: 'POST',
     headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
     body: JSON.stringify({ raw: buildRawMessage(user.emailFromAddress, input) }),
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) {
     throw new Error(`Gmail API send failed: ${res.status} ${await res.text().catch(() => '')}`)

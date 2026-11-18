@@ -11,6 +11,7 @@ export function EmailSettingsCard() {
   const [loading, setLoading] = useState(true)
   const [configured, setConfigured] = useState(false)
   const [currentAddress, setCurrentAddress] = useState<string | null>(null)
+  const [removeError, setRemoveError] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // The OAuth callback redirects back here with one of these params —
@@ -32,7 +33,13 @@ export function EmailSettingsCard() {
   async function handleRemove() {
     setSaving(true)
     try {
-      await fetch('/api/settings/email', { method: 'DELETE' })
+      const res = await fetch('/api/settings/email', { method: 'DELETE' })
+      // Only show "disconnected" once the token is actually gone.
+      if (!res.ok) {
+        setRemoveError(true)
+        return
+      }
+      setRemoveError(false)
       setConfigured(false)
       setCurrentAddress(null)
     } finally {
@@ -56,6 +63,7 @@ export function EmailSettingsCard() {
             Connected as {currentAddress}
           </div>
         )}
+        {removeError && <p className="text-sm text-destructive">Could not disconnect — try again.</p>}
         {connectError && (
           <p className="text-sm text-destructive">Could not connect that Gmail account — try again.</p>
         )}

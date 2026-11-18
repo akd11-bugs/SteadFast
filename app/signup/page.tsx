@@ -67,9 +67,11 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           <SignupEmailForm />
         )
       ) : (
-        !googleEnabled && (
-          <AuthNotice tone="info">Sign-up isn’t available right now. Ask your workspace admin for an invite.</AuthNotice>
-        )
+        // Without email sign-up, someone with no Google account needs a next step.
+        <AuthNotice tone="info">
+          {googleEnabled ? 'No Google account? ' : 'Sign-up isn’t available right now. '}
+          Ask your workspace admin for an invite link.
+        </AuthNotice>
       )}
     </AuthShell>
   )

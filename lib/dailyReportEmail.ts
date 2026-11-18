@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { sendEmail } from '@/lib/email'
+import { sendEmailAs } from '@/lib/email'
 
 const ACTOR_ACTIVITY_TYPES = ['call', 'email', 'meeting', 'note', 'stage_change']
 
@@ -47,7 +47,7 @@ export async function sendDailyActivityReportEmail(orgId: string, date: Date = y
   const [admins, createdLeads, wonLeads, activities] = await Promise.all([
     prisma.user.findMany({
       where: { orgId, role: 'admin', isActive: true },
-      select: { email: true },
+      select: { id: true, email: true, gmailRefreshTokenEnc: true },
     }),
     prisma.lead.count({ where: { orgId, createdAt: { gte: start, lte: end } } }),
     prisma.lead.count({ where: { orgId, wonAt: { gte: start, lte: end } } }),
@@ -93,8 +93,12 @@ export async function sendDailyActivityReportEmail(orgId: string, date: Date = y
   const body = lines.join('\n')
   // One recipient list on a single send, rather than one connection per
   // admin — this org's mailbox is resolved once instead of once per admin.
+  // Sent from an admin's connected Gmail (HTTPS) when one exists: plain
+  // SMTP is blocked on Render. sendEmailAs falls back to the org/global
+  // SMTP mailbox when nobody has connected Gmail.
   if (recipients.length > 0) {
-    await sendEmail({ to: recipients.join(', '), subject, body }, orgId)
+    const sender = admins.find((a) => a.gmailRefreshTokenEnc) ?? admins[0]
+    await sendEmailAs(sender.id, { to: recipients.join(', '), subject, body })
   }
 
   return { recipients, reportDate }

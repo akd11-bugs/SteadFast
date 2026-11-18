@@ -2,10 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
+import { AuthField, AuthNotice, AuthSecondaryButton } from '@/components/auth/AuthControls'
 import { Loader2 } from 'lucide-react'
 import { signOutForInviteRetry } from '@/app/invite/redeem/actions'
 
@@ -68,100 +65,45 @@ export function RedeemInviteForm({ alreadySignedInEmail }: { alreadySignedInEmai
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-xl">Join Steadfast</CardTitle>
-          <CardDescription>
-            {alreadySignedInEmail
-              ? `Enter the invite code your admin gave you to finish joining as ${alreadySignedInEmail}.`
-              : 'Enter the invite code your admin gave you, and set your login details.'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {alreadySignedInEmail && (
-              <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
-                <span>
-                  Joining as <span className="font-medium">{alreadySignedInEmail}</span>
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 underline underline-offset-4 text-muted-foreground hover:text-foreground"
-                  onClick={() => signOutForInviteRetry(form.code.trim())}
-                >
-                  Not you? Sign out
-                </button>
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="code">Invite code</Label>
-              <Input
-                id="code"
-                autoFocus={!form.code}
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-                placeholder="e.g. aB3xQ9zK"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="name">Your name</Label>
-              <Input
-                id="name"
-                autoFocus={!!form.code}
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-            {!alreadySignedInEmail && (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="min 8 characters"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm">Confirm password</Label>
-                  <Input
-                    id="confirm"
-                    type="password"
-                    value={form.confirm}
-                    onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-            {error && <p className="text-sm text-rose-600">{error}</p>}
-            <Button
-              className="w-full"
-              onClick={redeem}
-              disabled={
-                saving ||
-                !form.code ||
-                !form.name ||
-                (!alreadySignedInEmail && (!form.email || !form.password))
-              }
-            >
-              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {alreadySignedInEmail ? 'Finish joining' : 'Create my account'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        redeem()
+      }}
+    >
+      {alreadySignedInEmail && (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70">
+          <span>
+            Joining as <span className="font-medium text-white">{alreadySignedInEmail}</span>
+          </span>
+          <button
+            type="button"
+            className="shrink-0 underline underline-offset-4 hover:text-white"
+            onClick={() => signOutForInviteRetry(form.code.trim())}
+          >
+            Not you? Sign out
+          </button>
+        </div>
+      )}
+      <AuthField id="code" label="Invite code" autoFocus={!form.code} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. aB3xQ9zK" />
+      <AuthField id="name" label="Your name" autoComplete="name" autoFocus={!!form.code} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      {!alreadySignedInEmail && (
+        <>
+          <AuthField id="email" label="Email" type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <AuthField id="password" label="Password" type="password" autoComplete="new-password" placeholder="min 8 characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <AuthField id="confirm" label="Confirm password" type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />
+        </>
+      )}
+      {error && <AuthNotice tone="error">{error}</AuthNotice>}
+      <AuthSecondaryButton
+        type="submit"
+        className="border-transparent bg-white text-[#07080c] hover:bg-white/90 hover:text-[#07080c]"
+        disabled={saving || !form.code || !form.name || (!alreadySignedInEmail && (!form.email || !form.password))}
+      >
+        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {alreadySignedInEmail ? 'Join workspace' : 'Create my account'}
+      </AuthSecondaryButton>
+    </form>
   )
 }

@@ -25,14 +25,17 @@ export function LeadDetailDialog({
   onLeadUpdated?: (lead: Lead) => void
 }) {
   const [lead, setLead] = useState<Lead | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const { columns } = usePipelineConfig()
 
   useEffect(() => {
     if (!open) return
     setLead(null)
+    setLoadFailed(false)
     fetch(`/api/leads/${leadId}`)
-      .then((r) => r.json())
-      .then((data) => data.lead && setLead(data.lead))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => (data?.lead ? setLead(data.lead) : setLoadFailed(true)))
+      .catch(() => setLoadFailed(true))
   }, [open, leadId])
 
   if (!open) return null
@@ -41,9 +44,15 @@ export function LeadDetailDialog({
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-          </div>
+          {loadFailed ? (
+            <p role="alert" className="text-sm text-muted-foreground">
+              Couldn&apos;t open this lead. It may have been deleted or you may be offline.
+            </p>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     )

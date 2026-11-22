@@ -39,11 +39,25 @@ function getClient(): JWT {
   return client
 }
 
+// A Google spreadsheet id is base64url-ish. Anything else (e.g. "<id>/values/A:Z?x=")
+// would rewrite the API path and dodge the one-sheet-per-org unique check.
+export const SHEET_ID_PATTERN = /^[A-Za-z0-9_-]{10,100}$/
+function sheetPath(spreadsheetId: string): string {
+  if (!SHEET_ID_PATTERN.test(spreadsheetId)) throw new Error('Invalid Google Sheet ID')
+  return encodeURIComponent(spreadsheetId)
+}
+
+// A cell starting with = + - @ (or a tab/CR) is run as a formula under
+// USER_ENTERED. Values from public forms must stay text: prefix an apostrophe.
+export function sheetSafeCell(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+}
+
 // Reads a range as a 2D array of cell values (row 0 is whatever's first in
 // the range — callers decide whether that's a header row).
 export async function getSheetRows(spreadsheetId: string, range: string): Promise<string[][]> {
   const { token } = await getClient().getAccessToken()
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetPath(spreadsheetId)}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
   if (!res.ok) {
     const body = await res.text()
@@ -60,11 +74,11 @@ export async function getSheetRows(spreadsheetId: string, range: string): Promis
 // whatever range the org configured (e.g. "Sheet1" out of "Sheet1!A:K").
 export async function appendSheetRow(spreadsheetId: string, sheetName: string, row: string[]): Promise<void> {
   const { token } = await getClient().getAccessToken()
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetPath(spreadsheetId)}/values/${encodeURIComponent(sheetName)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ values: [row] }),
+    body: JSON.stringify({ values: [row.map(sheetSafeCell)] }),
   })
   if (!res.ok) {
     const body = await res.text()

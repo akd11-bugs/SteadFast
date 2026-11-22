@@ -284,7 +284,9 @@ describe('POST /api/invites/redeem', () => {
     expect(signUp).not.toHaveBeenCalled()
     expect(callsOf('user', 'create')).toHaveLength(0)
     expect(callsOf('user', 'update')[0].args).toEqual({
-      where: { id: 'u-old' }, data: { orgId: 'org-a', role: 'operations', isActive: true },
+      where: { id: 'u-old' },
+      // The old org's admin chose that rep PIN; it must not work at the new org.
+      data: { orgId: 'org-a', role: 'operations', isActive: true, pinHash: null, pinFailedAttempts: 0, pinLockedUntil: null },
     })
   })
 

@@ -30,21 +30,30 @@ const POLL_MS = 15000
 export function ActivityFeed({ limit = 8 }: { limit?: number }) {
   const [items, setItems] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     function load() {
       fetch('/api/activities?limit=' + limit)
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error(`activities ${r.status}`)
+          return r.json()
+        })
         .then((data) => {
           if (!cancelled) {
             setItems(data.activities ?? [])
+            setFailed(false)
             setLoading(false)
           }
         })
         .catch(() => {
-          if (!cancelled) setLoading(false)
+          // Keep the last good list on a failed poll; only say "couldn't load" when there's nothing to show.
+          if (!cancelled) {
+            setFailed(true)
+            setLoading(false)
+          }
         })
     }
 
@@ -56,7 +65,7 @@ export function ActivityFeed({ limit = 8 }: { limit?: number }) {
     }
   }, [limit])
 
-  return <ActivityFeedView items={items} loading={loading} />
+  return <ActivityFeedView items={items} loading={loading} failed={failed} />
 }
 
 // Presentation only. The marketing page renders this with fixed demo data so
@@ -65,11 +74,13 @@ export function ActivityFeed({ limit = 8 }: { limit?: number }) {
 export function ActivityFeedView({
   items,
   loading = false,
+  failed = false,
   live = true,
   interactive = true,
 }: {
   items: ActivityItem[]
   loading?: boolean
+  failed?: boolean
   live?: boolean
   interactive?: boolean
 }) {
@@ -87,7 +98,10 @@ export function ActivityFeedView({
       </CardHeader>
       <CardContent className="space-y-2">
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {!loading && items.length === 0 && (
+        {!loading && failed && items.length === 0 && (
+          <p role="alert" className="text-sm text-muted-foreground">Couldn&apos;t load activity. Retrying shortly.</p>
+        )}
+        {!loading && !failed && items.length === 0 && (
           <p className="text-sm text-muted-foreground">No activity yet. Add a lead to get started.</p>
         )}
         {!loading &&

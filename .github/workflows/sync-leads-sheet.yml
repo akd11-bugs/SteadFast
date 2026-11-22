@@ -19,7 +19,10 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SYNC_API_KEY }}" \
             "${{ secrets.APP_URL }}/api/cron/sync-leads-sheet")
           echo "HTTP status: $status"
-          cat /tmp/response.json
+          # Counts only: skip reasons carry lead emails/names, and Actions logs
+          # are readable by anyone with repo access. Details live in the job run.
+          jq -c '[.results[]? | {source, created, skipped: (.skipped | length), warnings: (.customFieldWarnings | length), failed: (.error != null)}]' /tmp/response.json \
+            || echo "(response was not the expected JSON)"
           if [ "$status" -ge 400 ]; then
             exit 1
           fi

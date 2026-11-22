@@ -47,11 +47,13 @@ export function TasksList({ initialTasks }: { initialTasks: Task[] }) {
 
   async function toggleDone(task: Task) {
     setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, done: !t.done } : t)))
-    await fetch(`/api/tasks/${task.id}`, {
+    const res = await fetch(`/api/tasks/${task.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ done: !task.done }),
-    })
+    }).catch(() => null)
+    // Roll back the optimistic tick if the save didn't land.
+    if (!res?.ok) setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
     router.refresh()
   }
 

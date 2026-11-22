@@ -56,11 +56,15 @@ const SORT_LABELS: Record<SortKey, string> = {
 export function LeadsTable({
   initialLeads,
   initialQuery,
+  initialStage,
+  initialSource,
   canReassign = false,
   ownerOptions = [],
 }: {
   initialLeads: Lead[]
   initialQuery?: string
+  initialStage?: BoardColumnKey
+  initialSource?: LeadSource
   canReassign?: boolean
   ownerOptions?: OwnerOption[]
 }) {
@@ -71,8 +75,8 @@ export function LeadsTable({
   const columnKeys = useMemo(() => columns.map((c) => c.key), [columns])
   const pendingSubStatusKeys = useMemo(() => pendingSubStatuses.map((s) => s.key), [pendingSubStatuses])
   const [search, setSearch] = useState(initialQuery ?? '')
-  const [stageFilter, setStageFilter] = useState<BoardColumnKey | 'all'>('all')
-  const [sourceFilter, setSourceFilter] = useState<LeadSource | 'all'>('all')
+  const [stageFilter, setStageFilter] = useState<BoardColumnKey | 'all'>(initialStage ?? 'all')
+  const [sourceFilter, setSourceFilter] = useState<LeadSource | 'all'>(initialSource ?? 'all')
   // Set only by applying a whiteboard-created segment (a fixed group of
   // leads, not a predicate) — overrides stage/source/search entirely while active.
   const [leadIdFilter, setLeadIdFilter] = useState<Set<string> | null>(null)
@@ -87,7 +91,7 @@ export function LeadsTable({
   const [visibleColumns, setVisibleColumns] = useState<string[]>(DEFAULT_COLUMNS)
   const [calculations, setCalculations] = useState<Record<string, Calculation>>({})
   const { fields: customFieldDefs } = useLeadFieldDefinitions()
-  const allColumns = useMemo(() => getLeadColumns(customFieldDefs ?? []), [customFieldDefs])
+  const allColumns = useMemo(() => getLeadColumns(customFieldDefs ?? [], columnLabels), [customFieldDefs, columnLabels])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

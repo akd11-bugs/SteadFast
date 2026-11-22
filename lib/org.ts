@@ -85,36 +85,6 @@ export async function seedSampleLeads(orgId: string): Promise<void> {
   }
 }
 
-// Domains that can't meaningfully identify "a company" — two strangers who
-// both happen to use Gmail are not colleagues. A personal-email domain
-// always means "create your own org," never a join-request match, however
-// many other Steadfast users happen to share that same free provider.
-const PERSONAL_EMAIL_DOMAINS = new Set([
-  'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com',
-  'aol.com', 'protonmail.com', 'live.com', 'msn.com',
-])
-
-export function isPersonalEmailDomain(domain: string): boolean {
-  return PERSONAL_EMAIL_DOMAINS.has(domain.toLowerCase())
-}
-
-// Finds an existing org to offer joining, based purely on email domain —
-// reuses data that already exists (no new Organization.domain column).
-// Returns null for a personal-email domain or when nobody at that domain
-// has an account yet, in which case the caller should offer to create a
-// brand-new org instead.
-export async function findOrgByEmailDomain(email: string): Promise<Organization | null> {
-  const domain = email.split('@')[1]?.toLowerCase()
-  if (!domain || isPersonalEmailDomain(domain)) return null
-
-  const match = await prisma.user.findFirst({
-    where: { email: { endsWith: `@${domain}` }, isActive: true },
-    select: { orgId: true },
-  })
-  if (!match) return null
-  return prisma.organization.findUnique({ where: { id: match.orgId } })
-}
-
 // Every org that exists — used by the one platform-level route that operates
 // across all companies rather than one caller's own org: the daily activity
 // report cron, which still sends each org its own separate report. (The

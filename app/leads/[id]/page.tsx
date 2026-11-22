@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/db'
-import { requireUser, isAdmin, isOperations, leadScope } from '@/lib/session'
+import { requireUser, leadScope } from '@/lib/session'
 import { RecordNavigator } from '@/components/shared/RecordNavigator'
 import { LeadPageView } from '@/components/leads/LeadPageView'
 import type { Lead } from '@/lib/types'
@@ -10,8 +10,10 @@ export const dynamic = 'force-dynamic'
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser()
   const { id } = await params
-  const lead = await prisma.lead.findUnique({
-    where: { id },
+  // findFirst + leadScope, never findUnique by id: the id is global, so only
+  // the scope keeps another org's (or another rep's) lead out. Miss = 404.
+  const lead = await prisma.lead.findFirst({
+    where: { id, ...leadScope(user) },
     include: {
       activities: { orderBy: { date: 'desc' } },
       skillRuns: { orderBy: { createdAt: 'desc' }, take: 30 },
@@ -19,15 +21,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       person: true,
     },
   })
-  // Sales users hitting another rep's lead by direct URL get the same 404 as
-  // a missing lead — not just hidden from lists.
-  if (!lead || (!isAdmin(user) && !isOperations(user) && lead.ownerId !== user.id)) notFound()
+  if (!lead) notFound()
 
-  // Same default ordering the main /leads table uses, so "N of M" and the
-  // prev/next arrows step through the exact set this lead was opened from.
+  // Same default ordering the main /leads table uses (newest created first),
+  // so "N of M" and the prev/next arrows step through the set it was opened from.
   const siblingIds = await prisma.lead.findMany({
     where: leadScope(user),
-    orderBy: [{ stage: 'asc' }, { position: 'asc' }],
+    orderBy: { createdAt: 'desc' },
     select: { id: true },
   })
   const index = siblingIds.findIndex((l) => l.id === id)

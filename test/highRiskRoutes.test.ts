@@ -44,6 +44,9 @@ vi.mock('@/lib/http', () => ({
 
 vi.mock('@/lib/audit', () => ({ logAudit: async () => undefined }))
 
+const sendEmailAs = vi.fn()
+vi.mock('@/lib/email', () => ({ sendEmailAs: (...a: unknown[]) => sendEmailAs(...a) }))
+
 // Rep auth is a separate cookie-based identity; stub it the same way.
 const repSession: { user: Record<string, unknown> | null } = { user: null }
 vi.mock('@/lib/repSession', () => ({
@@ -67,6 +70,8 @@ const FOREIGN = 'org-b'
 const bulkRoute = await import('@/app/api/leads/bulk/route')
 const companyIdRoute = await import('@/app/api/companies/[id]/route')
 const repLeadRoute = await import('@/app/api/rep/leads/[id]/route')
+const emailSendRoute = await import('@/app/api/email/send/route')
+const stageIdRoute = await import('@/app/api/pipeline-config/stages/[id]/route')
 
 function jsonReq(body: unknown, method = 'POST') {
   return new Request('http://test/api/x', {
@@ -178,5 +183,36 @@ describe('GET/PATCH /api/rep/leads/[id] — PIN auth, no middleware in front', (
     await repLeadRoute.GET(bareReq('GET'), params('lead-1'))
     for (const seen of orgIdsSeen()) expect(seen).toBe(ORG)
     expect(JSON.stringify(calls)).not.toContain(FOREIGN)
+  })
+})
+
+describe('POST /api/email/send — a sent email is never reported as failed', () => {
+  beforeEach(() => sendEmailAs.mockReset())
+
+  it('returns ok when the send worked but logging the activity failed', async () => {
+    results.set('lead.findFirst', { id: 'lead-1', orgId: ORG, email: 'buyer@acme.com' })
+    sendEmailAs.mockResolvedValue({ id: 'msg-1' })
+    const spy = vi.spyOn(prismaStub.activity, 'create').mockRejectedValueOnce(new Error('pool timeout'))
+    const res = await emailSendRoute.POST(jsonReq({ leadId: 'lead-1', subject: 'Hi', body: 'Hello' }))
+    spy.mockRestore()
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(true)
+  })
+
+  it('400s a lead with no email address without trying to send', async () => {
+    results.set('lead.findFirst', { id: 'lead-1', orgId: ORG, email: '' })
+    const res = await emailSendRoute.POST(jsonReq({ leadId: 'lead-1', subject: 'Hi', body: 'Hello' }))
+    expect(res.status).toBe(400)
+    expect(sendEmailAs).not.toHaveBeenCalled()
+  })
+})
+
+describe('DELETE /api/pipeline-config/stages/[id] — no stranded leads', () => {
+  it('409s while leads are still in the stage, deleting nothing', async () => {
+    results.set('stageDefinition.findFirst', { id: 's-1', key: 'demo', isCore: false, orgId: ORG })
+    results.set('lead.count', 3)
+    const res = await stageIdRoute.DELETE(bareReq('DELETE'), { params: Promise.resolve({ id: 's-1' }) })
+    expect(res.status).toBe(409)
+    expect(calls.some(c => c.model === 'stageDefinition' && c.op === 'delete')).toBe(false)
   })
 })

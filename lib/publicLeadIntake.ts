@@ -78,8 +78,8 @@ export async function submitPublicLeadIntake(
     }
   }
 
-  const owner = await prisma.user.findUnique({ where: { id: defaultOwnerUserId }, select: { id: true, name: true, orgId: true } })
-  if (!owner || owner.orgId !== orgId) {
+  const owner = await prisma.user.findUnique({ where: { id: defaultOwnerUserId }, select: { id: true, name: true, orgId: true, isActive: true } })
+  if (!owner || owner.orgId !== orgId || !owner.isActive) {
     // The form's configured owner was removed/deactivated after the form was
     // set up — a config problem, not something the submitter caused.
     throw new PublicIntakeValidationError('This form is temporarily unavailable. Please try again later.')

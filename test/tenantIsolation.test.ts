@@ -39,6 +39,17 @@ vi.mock('@/lib/http', () => ({
 
 vi.mock('@/lib/audit', () => ({ logAudit: async () => undefined }))
 
+// Server pages render client components; stub them so only the page's own
+// queries run. notFound() throws like the real one so a miss is observable.
+vi.mock('next/navigation', () => ({
+  notFound: () => { throw new Error('NEXT_NOT_FOUND') },
+  redirect: () => { throw new Error('NEXT_REDIRECT') },
+  useRouter: () => ({}),
+}))
+vi.mock('@/components/shared/RecordNavigator', () => ({ RecordNavigator: () => null }))
+vi.mock('@/components/leads/LeadPageView', () => ({ LeadPageView: () => null }))
+vi.mock('@/components/leads/LeadsTable', () => ({ LeadsTable: () => null }))
+
 // Tenant-boundary tests for the routes the authorization audit ranked
 // highest. Each handler is exercised for real; assertions are on the WHERE
 // clause the handler actually sent to Prisma, so removing an orgId filter
@@ -50,6 +61,9 @@ const leadsRoute = await import('@/app/api/leads/[id]/route')
 const activitiesRoute = await import('@/app/api/activities/route')
 const viewsIdRoute = await import('@/app/api/views/[id]/route')
 const tasksIdRoute = await import('@/app/api/tasks/[id]/route')
+const companiesIdRoute = await import('@/app/api/companies/[id]/route')
+const leadDetailPage = (await import('@/app/leads/[id]/page')).default
+const leadsPage = (await import('@/app/leads/page')).default
 
 function req(url = 'http://test/api/x', init?: RequestInit) {
   return new Request(url, init)
@@ -109,6 +123,64 @@ describe('GET /api/leads/[id] — the main lead surface', () => {
     results.set('lead.findFirst', null)
     const res = await leadsRoute.GET(req(), params('lead-from-org-b'))
     expect(res.status).toBe(404)
+  })
+})
+
+describe('/leads/[id] page — the lead lookup is tenant-scoped', () => {
+  const open = (id: string) => leadDetailPage({ params: Promise.resolve({ id }) })
+
+  it('an admin is scoped to their own org, not just the id', async () => {
+    session.user = asUser({ role: 'admin', id: 'u-admin' })
+    results.set('lead.findFirst', { id: 'lead-1', orgId: ORG })
+    await open('lead-1')
+    const lookup = calls.find(c => c.model === 'lead' && c.op === 'findFirst')!
+    expect(lookup.args.where).toMatchObject({ id: 'lead-1', orgId: { in: [ORG] } })
+    expect(calls.some(c => c.model === 'lead' && c.op === 'findUnique')).toBe(false)
+  })
+
+  it("404s another org's lead (the scoped lookup finds nothing)", async () => {
+    session.user = asUser({ role: 'admin', id: 'u-admin' })
+    results.set('lead.findFirst', null)
+    await expect(open('lead-from-org-b')).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it("a sales user's lookup is also restricted to leads they own", async () => {
+    results.set('lead.findFirst', null)
+    await expect(open('someone-elses-lead')).rejects.toThrow('NEXT_NOT_FOUND')
+    const lookup = calls.find(c => c.model === 'lead' && c.op === 'findFirst')!
+    expect(lookup.args.where).toMatchObject({ ownerId: 'u-sales' })
+  })
+})
+
+describe('/leads page — the admin reassign list is tenant-scoped', () => {
+  it('only lists users from the caller org', async () => {
+    session.user = asUser({ role: 'admin', id: 'u-admin' })
+    await leadsPage({ searchParams: Promise.resolve({}) })
+    const owners = calls.find(c => c.model === 'user' && c.op === 'findMany')!
+    expect(owners.args.where).toMatchObject({ orgId: { in: [ORG] } })
+  })
+})
+
+describe('GET /api/companies/[id] — leads inside a company follow leadScope', () => {
+  it("a sales rep only gets their own leads on a shared company", async () => {
+    results.set('company.findFirst', { id: 'c-1', orgId: ORG, leads: [] })
+    await companiesIdRoute.GET(req(), params('c-1'))
+    const q = calls.find(c => c.model === 'company' && c.op === 'findFirst')!
+    const leads = (q.args.include as { leads: { where: Record<string, unknown> } }).leads
+    expect(leads.where).toMatchObject({ orgId: { in: [ORG] }, ownerId: 'u-sales' })
+  })
+})
+
+describe('POST /api/activities — clients cannot forge system activity types', () => {
+  it.each(['stage_change', 'onboarding_step', 'anything'])('400s type=%s and writes nothing', async (type) => {
+    const res = await activitiesRoute.POST(jsonReq({ leadId: 'lead-1', type, description: 'x' }))
+    expect(res.status).toBe(400)
+    expect(calls.some(c => c.model === 'activity' && c.op === 'create')).toBe(false)
+  })
+
+  it('400s an unparseable date instead of a 500', async () => {
+    const res = await activitiesRoute.POST(jsonReq({ leadId: 'lead-1', type: 'note', date: 'garbage' }))
+    expect(res.status).toBe(400)
   })
 })
 

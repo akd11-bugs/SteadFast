@@ -79,6 +79,7 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
       const user = await prisma.user.findFirst({
         where: {
           orgId: source.orgId,
+          isActive: true,
           OR: [{ email: { equals: value, mode: 'insensitive' } }, { name: { equals: value, mode: 'insensitive' } }],
         },
         select: { id: true, name: true },

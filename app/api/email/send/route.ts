@@ -50,9 +50,19 @@ export async function POST(req: Request) {
     if (!lead) {
       return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     }
+    if (!lead.email) {
+      return NextResponse.json({ error: 'This lead has no email address — add one first' }, { status: 400 })
+    }
+    let result
     try {
-      const result = await sendEmailAs(user.id, { to: lead.email, subject, body: emailBody })
-
+      result = await sendEmailAs(user.id, { to: lead.email, subject, body: emailBody })
+    } catch (err) {
+      console.error('sendEmail (lead-scoped) failed', err)
+      return NextResponse.json({ error: 'Could not send the email — please try again shortly' }, { status: 502 })
+    }
+    // The email is out. A logging failure from here on must not say "try again",
+    // or the user re-sends and the lead gets the same email twice.
+    try {
       const activity = await prisma.activity.create({
         data: {
           orgId: lead.orgId,
@@ -66,8 +76,8 @@ export async function POST(req: Request) {
 
       return NextResponse.json({ ok: true, emailId: result.id, activity })
     } catch (err) {
-      console.error('sendEmail (lead-scoped) failed', err)
-      return NextResponse.json({ error: 'Could not send the email — please try again shortly' }, { status: 502 })
+      console.error('sendEmail sent but activity logging failed', err)
+      return NextResponse.json({ ok: true, emailId: result.id, activity: null, warning: 'Email sent, but it could not be logged on the lead' })
     }
   }
 

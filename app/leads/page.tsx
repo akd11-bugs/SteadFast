@@ -6,44 +6,10 @@ import { requireUser, leadScope, isAdmin } from '@/lib/session'
 import { BOARD_COLUMN_LABELS, boardColumnToInput, SOURCE_LABELS, type BoardColumnKey, type LeadSource } from '@/lib/types'
 import { getRange, parseRangeKey, RANGE_LABELS, type RangeKey } from '@/lib/reportRange'
 import { getPendingSubStatusDefinitions } from '@/lib/pipelineConfig'
+import { buildFilters } from '@/lib/leadFilters'
 
 export const dynamic = 'force-dynamic'
 
-const FILTERS: Record<string, { where: Record<string, unknown>; label: string }> = (() => {
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
-  return {
-    'partners-onboarded': {
-      where: { type: 'partner', wonAt: { gte: monthStart, lte: monthEnd } },
-      label: 'Partners onboarded this month',
-    },
-    'merchants-onboarded': {
-      where: { type: 'merchant', wonAt: { gte: monthStart, lte: monthEnd } },
-      label: 'Merchants onboarded this month',
-    },
-    'expected-to-onboard': {
-      where: { wonAt: null, expectedCloseDate: { gte: monthStart, lte: monthEnd } },
-      label: 'Expected to onboard by month end',
-    },
-    'open-pipeline': {
-      where: { stage: { notIn: ['onboarding', 'not_interested'] } },
-      label: 'Open pipeline',
-    },
-    'won-this-month': {
-      where: { wonAt: { gte: monthStart, lte: monthEnd } },
-      label: 'Won this month',
-    },
-    won: {
-      where: { stage: 'onboarding' },
-      label: 'Won',
-    },
-    closed: {
-      where: { stage: { in: ['onboarding', 'not_interested'] } },
-      label: 'Closed (won or not interested)',
-    },
-  }
-})()
 
 export default async function LeadsPage({
   searchParams,
@@ -60,12 +26,12 @@ export default async function LeadsPage({
 }) {
   const user = await requireUser()
   const { filter, owner, source, stage, q, metric, range: rawRange } = await searchParams
-  const matched = filter ? FILTERS[filter] : undefined
+  const matched = filter ? buildFilters(new Date())[filter] : undefined
   const pendingSubStatusDefs = await getPendingSubStatusDefinitions(user.orgId)
   const pendingSubStatusKeys = pendingSubStatusDefs.map((s) => s.key)
 
   // Period-scoped drill-down from Reports — e.g. "leads created this week" —
-  // distinct from the static, always-current-month FILTERS above.
+  // distinct from buildFilters()'s always-current-month presets.
   const range: RangeKey | null = metric ? parseRangeKey(rawRange) : null
   const periodBounds = range ? getRange(range) : null
   const periodWhere =
@@ -109,7 +75,7 @@ export default async function LeadsPage({
 
   const admin = isAdmin(user)
   const owners = admin
-    ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+    ? await prisma.user.findMany({ where: { isActive: true, orgId: { in: user.visibleOrgIds } }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
     : []
 
   return (
@@ -129,7 +95,13 @@ export default async function LeadsPage({
           </Link>
         </div>
       )}
-      <LeadsTable initialLeads={leads as any} initialQuery={q} canReassign={admin} ownerOptions={owners} />
+      <LeadsTable
+        initialLeads={leads as any}
+        initialQuery={q}
+        /* 'pending' has no column of its own (its sub-statuses are the columns), so it can't seed the column filter. */
+        initialStage={stage && stage !== 'pending' ? stage : undefined}
+        initialSource={source as LeadSource | undefined}
+        canReassign={admin} ownerOptions={owners} />
     </div>
   )
 }

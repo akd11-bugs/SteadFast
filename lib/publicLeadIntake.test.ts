@@ -27,7 +27,7 @@ vi.mock('@/lib/googleSheetWriteback', () => ({ writeBackLeadToSheet: (...args: u
 const { submitPublicLeadIntake, PublicIntakeValidationError } = await import('@/lib/publicLeadIntake')
 
 const orgId = 'org-1'
-const owner = { id: 'user-1', name: 'Jane Owner', orgId }
+const owner = { id: 'user-1', name: 'Jane Owner', orgId, isActive: true }
 
 beforeEach(() => {
   findUniqueUserMock.mockReset().mockResolvedValue(owner)
@@ -44,6 +44,11 @@ function submit(fieldConfigJson: string, input: Parameters<typeof submitPublicLe
 }
 
 describe('submitPublicLeadIntake', () => {
+  it('refuses to assign a lead to a deactivated default owner', async () => {
+    findUniqueUserMock.mockResolvedValue({ ...owner, isActive: false })
+    await expect(submit('[]', { company: 'Acme', email: 'a@acme.com' })).rejects.toThrow(/temporarily unavailable/)
+  })
+
   it('creates a lead for a valid submission against the default ("[]") fixed field set', async () => {
     await submit('[]', { company: 'Acme', email: 'a@acme.com' })
     expect(leadCreateMock).toHaveBeenCalledTimes(1)

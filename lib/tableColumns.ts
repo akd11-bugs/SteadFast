@@ -4,6 +4,7 @@ import {
   QUALITY_LABELS,
   BUSINESS_TYPE_LABELS,
   STAGE_LABELS,
+  boardColumnFor,
   type Lead,
   type LeadSource,
   type LeadType,
@@ -43,13 +44,15 @@ export interface CompanyRow {
  * so a custom field shows up in the table's "+ add column" picker exactly
  * like a built-in one, with no separate code path.
  */
-export function getLeadColumns(customFieldDefs: LeadFieldOption[]): TableColumn<Lead>[] {
+// `columnLabels` is the org's board columns (usePipelineConfig), so a custom
+// stage or renamed pending sub-status shows its real name, not the fixed default.
+export function getLeadColumns(customFieldDefs: LeadFieldOption[], columnLabels: Record<string, string> = {}): TableColumn<Lead>[] {
   const builtins: TableColumn<Lead>[] = [
     { key: 'company', label: 'Company', type: 'text', getValue: (l) => l.company?.name ?? 'Unknown company' },
     { key: 'person', label: 'POC', type: 'text', getValue: (l) => l.person?.name ?? '—' },
     { key: 'email', label: 'Email', type: 'text', getValue: (l) => l.email },
     { key: 'phone', label: 'Phone', type: 'text', getValue: (l) => l.phone ?? '—' },
-    { key: 'stage', label: 'Stage', type: 'select', getValue: (l) => STAGE_LABELS[l.stage as Stage] ?? l.stage },
+    { key: 'stage', label: 'Stage', type: 'select', getValue: (l) => columnLabels[boardColumnFor(l)] ?? STAGE_LABELS[l.stage as Stage] ?? l.stage },
     { key: 'source', label: 'Source', type: 'select', getValue: (l) => SOURCE_LABELS[l.source as LeadSource] ?? l.source },
     { key: 'type', label: 'Type', type: 'select', getValue: (l) => LEAD_TYPE_LABELS[l.type as LeadType] ?? l.type },
     { key: 'quality', label: 'Quality', type: 'select', getValue: (l) => QUALITY_LABELS[l.quality as QualityLevel] ?? l.quality },

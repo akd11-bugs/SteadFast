@@ -4,10 +4,9 @@ import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 import { neonAuth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { Prisma, type User } from '@prisma/client'
+import type { User } from '@prisma/client'
 import { DEV_BYPASS_COOKIE } from '@/lib/devBypass'
 import { BRAND_NAME } from '@/lib/branding'
-import { findOrgByEmailDomain } from '@/lib/org'
 
 export { DEV_BYPASS_COOKIE }
 
@@ -95,32 +94,6 @@ async function resolveDevBypass(): Promise<SessionResolution | null> {
   return { kind: 'ok', user: appUser }
 }
 
-// A verified Neon Auth identity (emailVerified — in practice Google; the
-// caller checks it, since a password identity can be made for any typed
-// address) whose domain matches a real, already-registered org
-// joins instantly as 'sales' — no admin approval step, since the domain
-// match is itself the authorization: anyone at that company's own email
-// domain is assumed to belong there. An admin can still change her role or
-// deactivate her afterward from Settings -> Organisation, same as anyone
-// else. Returns null (not auto-joined) for a personal-email domain or one
-// with no matching org yet.
-async function autoJoinByEmailDomain(email: string, name: string): Promise<User | null> {
-  const matchedOrg = await findOrgByEmailDomain(email)
-  if (!matchedOrg) return null
-
-  try {
-    return await prisma.user.create({
-      data: { orgId: matchedOrg.id, name: name || email, email, passwordHash: null, role: 'sales', isActive: true },
-    })
-  } catch (err) {
-    // Someone else's concurrent request (or a stale cache) won the race to
-    // create this same email — just use the row that landed, not an error.
-    const isDuplicateEmail = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
-    if (!isDuplicateEmail) throw err
-    return prisma.user.findUnique({ where: { email } })
-  }
-}
-
 export const resolveSession = cache(async (): Promise<SessionResolution> => {
   const bypass = await resolveDevBypass()
   if (bypass) return bypass
@@ -129,11 +102,10 @@ export const resolveSession = cache(async (): Promise<SessionResolution> => {
   if (!data?.user?.email) return { kind: 'no-session' }
 
   const email = data.user.email.trim().toLowerCase()
-  let appUser = await prisma.user.findUnique({ where: { email } })
-  // Only a verified email (Google) may claim a domain. A password identity
-  // can be created for any typed address (invite redeem, Neon's public
-  // sign-up endpoint), so trusting it would let anyone join any company.
-  if (!appUser && data.user.emailVerified) appUser = await autoJoinByEmailDomain(email, data.user.name ?? '')
+  const appUser = await prisma.user.findUnique({ where: { email } })
+  // No User row = no access. Joining an existing org takes an invite; we
+  // removed email-domain auto-join because a shared domain is not consent
+  // (contractors, ex-staff, a reseller's own clients on the same domain).
   if (!appUser) return { kind: 'no-app-user' }
   if (!appUser.isActive) return { kind: 'inactive' }
   return { kind: 'ok', user: appUser }

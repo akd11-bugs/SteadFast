@@ -48,6 +48,12 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (existing.isCore) return NextResponse.json({ error: 'Core stages cannot be deleted' }, { status: 400 })
 
+  // Leads still in this stage would drop off every board column. Make the admin move them first.
+  const inStage = await prisma.lead.count({ where: { orgId: user.orgId, stage: existing.key } })
+  if (inStage > 0) {
+    return NextResponse.json({ error: `${inStage} lead${inStage === 1 ? ' is' : 's are'} still in this stage — move them first` }, { status: 409 })
+  }
+
   await prisma.stageDefinition.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }

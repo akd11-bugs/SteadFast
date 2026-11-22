@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Trash2, Building2 } from 'lucide-react'
-import { STAGE_LABELS, SOURCE_LABELS, type Stage, type LeadSource, type Lead } from '@/lib/types'
+import { STAGE_LABELS, SOURCE_LABELS, boardColumnFor, type Stage, type LeadSource, type Lead } from '@/lib/types'
+import { usePipelineConfig } from '@/lib/hooks/usePipelineConfig'
 import { useRouter } from 'next/navigation'
 import { LeadRecordView } from './LeadRecordView'
 
@@ -14,6 +15,7 @@ import { LeadRecordView } from './LeadRecordView'
 // DialogTitle/DialogDescription header) actually gets defined.
 export function LeadPageView({ initialLead }: { initialLead: Lead }) {
   const router = useRouter()
+  const { columns } = usePipelineConfig()
 
   return (
     <LeadRecordView
@@ -28,14 +30,14 @@ export function LeadPageView({ initialLead }: { initialLead: Lead }) {
                 {lead.company.name}
               </Link>
             </h1>
-            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-muted-foreground">
               {lead.person?.name && (
                 <>
                   <span className="font-medium text-foreground">{lead.person.name}</span>
                   <span>·</span>
                 </>
               )}
-              <Badge variant="outline">{STAGE_LABELS[lead.stage as Stage] ?? lead.stage}</Badge>
+              <Badge variant="outline">{columns.find((c) => c.key === boardColumnFor(lead))?.label ?? STAGE_LABELS[lead.stage as Stage] ?? lead.stage}</Badge>
               <span>·</span>
               <span>{SOURCE_LABELS[lead.source as LeadSource] ?? lead.source}</span>
             </div>

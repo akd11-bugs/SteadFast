@@ -30,12 +30,23 @@ export async function GET(req: Request) {
   return NextResponse.json({ activities: items })
 }
 
+const USER_ACTIVITY_TYPES: unknown[] = ['call', 'email', 'meeting', 'note']
+
 export async function POST(req: Request) {
   const user = await requireApiUser()
   if (user instanceof NextResponse) return user
   const body = await readJsonBody(req)
   if (body instanceof NextResponse) return body
   if (!body.leadId) return NextResponse.json({ error: 'leadId required' }, { status: 400 })
+
+  // Only user-loggable types. stage_change / onboarding_step are written by the
+  // server and feed reports, so a client must not be able to forge them.
+  const type = body.type ?? 'note'
+  if (!USER_ACTIVITY_TYPES.includes(type)) {
+    return NextResponse.json({ error: `type must be one of ${USER_ACTIVITY_TYPES.join(', ')}` }, { status: 400 })
+  }
+  const date = body.date ? new Date(body.date) : new Date()
+  if (Number.isNaN(date.getTime())) return NextResponse.json({ error: 'date is not a valid date' }, { status: 400 })
 
   const lead = await prisma.lead.findFirst({ where: { id: body.leadId, ...leadScope(user) }, select: { id: true, orgId: true } })
   if (!lead) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -44,13 +55,13 @@ export async function POST(req: Request) {
     data: {
       orgId: lead.orgId,
       leadId: body.leadId,
-      type: body.type ?? 'note',
+      type,
       description: body.description ?? '',
       // Always the real session user — never trust a client-supplied name
       // (closes the gap that let Kanban drag-and-drop log activity as
       // authorName: 'System' instead of whoever actually moved the card).
       authorName: user.name,
-      date: body.date ? new Date(body.date) : new Date(),
+      date,
     },
   })
 

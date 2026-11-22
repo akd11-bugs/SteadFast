@@ -115,6 +115,9 @@ export function LeadRecordView({
   const [skillRuns, setSkillRuns] = useState<SkillRunEntry[]>((initialLead.skillRuns as SkillRunEntry[] | undefined) ?? [])
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState<string | null>(null)
+  // One inline line for any failed action, so a failed save never looks like success.
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [posting, setPosting] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [stageChangeTarget, setStageChangeTarget] = useState<{ key: BoardColumnKey; label: string } | null>(null)
   // A nudge, never an automatic change — suggestStage() just classifies the
@@ -146,8 +149,15 @@ export function LeadRecordView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, lead.companyId])
 
-  async function patchLead(patch: Partial<Lead>) {
+  async function failure(res: Response, what: string) {
+    const body = await res.json().catch(() => null)
+    setActionError(`${what} failed: ${body?.error ?? `server returned ${res.status}`}`)
+  }
+
+  // Returns whether the save landed, so callers can roll back optimistic state.
+  async function patchLead(patch: Partial<Lead>): Promise<boolean> {
     setSaving(true)
+    setActionError(null)
     try {
       const res = await fetch(`/api/leads/${lead.id}`, {
         method: 'PATCH',
@@ -160,31 +170,46 @@ export function LeadRecordView({
         setLead(updated)
         onLeadChange?.(updated)
         router.refresh()
+        return true
       }
+      await failure(res, 'Saving')
+      return false
+    } catch {
+      setActionError('Saving failed: check your connection and try again.')
+      return false
     } finally {
       setSaving(false)
     }
   }
 
   async function patchCustomField(key: string, value: unknown) {
+    const previous = customFieldValues[key]
     setCustomFieldValues((prev) => ({ ...prev, [key]: value }))
-    await patchLead({ customFields: { [key]: value } } as unknown as Partial<Lead>)
+    const ok = await patchLead({ customFields: { [key]: value } } as unknown as Partial<Lead>)
+    if (!ok) setCustomFieldValues((prev) => ({ ...prev, [key]: previous }))
   }
 
   async function addActivity() {
-    if (!activityForm.description) return
+    if (!activityForm.description || posting) return
     const noteText = activityForm.description
-    const res = await fetch('/api/activities', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ leadId: lead.id, type: activityForm.type, description: noteText }),
-    })
-    if (res.ok) {
+    setPosting(true)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/activities', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ leadId: lead.id, type: activityForm.type, description: noteText }),
+      })
+      if (!res.ok) return await failure(res, 'Logging the activity')
       setActivityForm({ type: 'note', description: '' })
       const refreshed = await fetch(`/api/leads/${lead.id}`).then((r) => r.json())
-      setActivities(refreshed.lead.activities ?? [])
+      setActivities(refreshed.lead?.activities ?? [])
       router.refresh()
       checkStageNudge(noteText)
+    } catch {
+      setActionError('Logging the activity failed: check your connection and try again.')
+    } finally {
+      setPosting(false)
     }
   }
 
@@ -215,25 +240,41 @@ export function LeadRecordView({
 
   async function deleteLead() {
     if (!confirm('Delete this lead? Activities and skill runs will be removed.')) return
-    await fetch(`/api/leads/${lead.id}`, { method: 'DELETE' })
+    setActionError(null)
+    const res = await fetch(`/api/leads/${lead.id}`, { method: 'DELETE' }).catch(() => null)
+    if (!res) return setActionError('Deleting failed: check your connection and try again.')
+    if (!res.ok) return failure(res, 'Deleting the lead')
     onDeleted?.()
     router.refresh()
   }
 
   async function runSkill(skillId: string, _skillName: string) {
     setRunning(skillId)
+    setActionError(null)
+    // Open the tab now, while the click still counts as a user gesture; the run
+    // takes seconds and a window.open after the await gets popup-blocked.
+    const tab = window.open('about:blank', '_blank')
     try {
       const res = await fetch('/api/skills/run', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ skillId, leadId: lead.id, scope: 'lead' }),
       })
+      if (!res.ok) {
+        tab?.close()
+        return await failure(res, 'Running the skill')
+      }
       const data = await res.json()
       if (data.runId) {
         const refreshed = await fetch(`/api/leads/${lead.id}`).then((r) => r.json())
-        setSkillRuns(refreshed.lead.skillRuns ?? [])
+        setSkillRuns(refreshed.lead?.skillRuns ?? [])
       }
-      window.open(`/skills/${skillId}?leadId=${lead.id}`, '_blank')
+      const url = `/skills/${skillId}?leadId=${lead.id}`
+      if (tab) tab.location.href = url
+      else window.location.href = url
+    } catch {
+      tab?.close()
+      setActionError('Running the skill failed: check your connection and try again.')
     } finally {
       setRunning(null)
     }
@@ -261,6 +302,14 @@ export function LeadRecordView({
   return (
     <>
       {renderHeader({ lead, saving, setActiveTab, deleteLead })}
+      {actionError && (
+        <div role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{actionError}</span>
+          <button type="button" className="shrink-0 underline" onClick={() => setActionError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <HighlightsGrid items={highlights} />
 
@@ -626,8 +675,8 @@ export function LeadRecordView({
               rows={2}
             />
             <div className="flex justify-end">
-              <Button size="sm" onClick={addActivity} disabled={!activityForm.description}>
-                Log activity
+              <Button size="sm" onClick={addActivity} disabled={!activityForm.description || posting}>
+                {posting ? 'Logging…' : 'Log activity'}
               </Button>
             </div>
           </div>

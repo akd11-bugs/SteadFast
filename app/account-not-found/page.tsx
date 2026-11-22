@@ -8,13 +8,9 @@ import { UserX } from 'lucide-react'
 export const dynamic = 'force-dynamic'
 
 // Landed on by requireUser()/requireAnyUser() when a Neon Auth identity has
-// no matching Steadfast User row AND no domain-matched org to auto-join
-// (see autoJoinByEmailDomain in lib/session.ts — a domain match never
-// reaches this page at all, she's already in by the time resolveSession()
-// runs). What's left here is a personal-email domain or a domain with no
-// registered org yet, so the only real option is creating a brand-new org —
-// no separate signup-link step needed since Google already proved this
-// person owns this email address.
+// no matching User row. Joining an existing org needs an invite (there is no
+// email-domain auto-join), so the only self-serve option here is creating a
+// brand-new org.
 export default async function AccountNotFoundPage() {
   const { data } = await neonAuth.getSession()
   if (!data?.user?.email) redirect('/login')

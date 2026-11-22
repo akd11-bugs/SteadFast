@@ -166,7 +166,9 @@ export async function POST(req: Request) {
     user = existingUser
       ? await prisma.user.update({
           where: { id: existingUser.id },
-          data: { orgId: invite.orgId, role: invite.role, isActive: true },
+          // Drop the rep PIN on a move: the old org's admin set it, and it
+          // would otherwise sign them in at the new org's /rep/<slug>.
+          data: { orgId: invite.orgId, role: invite.role, isActive: true, pinHash: null, pinFailedAttempts: 0, pinLockedUntil: null },
         })
       : await prisma.user.create({
           data: { orgId: invite.orgId, name: redeemerName, email, passwordHash: null, role: invite.role, isActive: true },

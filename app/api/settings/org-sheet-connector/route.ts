@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { requireApiUser, isAdmin } from '@/lib/session'
 import { readJsonBody } from '@/lib/http'
-import { getSheetRows } from '@/lib/googleSheets'
+import { getSheetRows, SHEET_ID_PATTERN } from '@/lib/googleSheets'
 import { checkRateLimit } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
@@ -65,6 +65,9 @@ export async function POST(req: Request) {
 
   if (!sheetId || !defaultOwnerUserId) {
     return NextResponse.json({ error: 'sheetId and defaultOwnerUserId are required' }, { status: 400 })
+  }
+  if (!SHEET_ID_PATTERN.test(sheetId)) {
+    return NextResponse.json({ error: 'sheetId must be the ID from the sheet URL (letters, digits, - and _ only)' }, { status: 400 })
   }
 
   const owner = await prisma.user.findUnique({ where: { id: defaultOwnerUserId }, select: { orgId: true } })

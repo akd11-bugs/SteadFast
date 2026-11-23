@@ -49,6 +49,7 @@ function matches(row: Row, where: Row = {}): boolean {
       return path.reduce<unknown>((v, p) => (v as Row | undefined)?.[p], row[k]) === equals
     }
     if (cond && typeof cond === 'object' && 'in' in cond) return (cond as { in: unknown[] }).in.includes(row[k])
+    if (cond && typeof cond === 'object' && 'not' in cond) return row[k] !== (cond as { not: unknown }).not
     return row[k] === cond
   })
 }
@@ -172,6 +173,14 @@ describe('schema edits', () => {
     expect(res.status).toBe(409)
     expect((await res.json()).error).toContain('link to Companies')
     expect(db.objectType.some((o) => o.id === 'obj-c')).toBe(true)
+  })
+
+  it('lets an object with only a link to itself be deleted', async () => {
+    session.user = asUser(ADMIN)
+    db.objectType.push({ ...OBJ_A, id: 'obj-c', key: 'co_k', name: 'Companies', restrictToOwner: false })
+    db.objectField.push({ ...LINK_A, objectTypeId: 'obj-c', config: { targetObjectTypeId: 'obj-c' } })
+    const res = await objectIdRoute.DELETE(get(), params('obj-c'))
+    expect(res.status).toBe(200)
   })
 
   it('deletes a field and strips its key from records in one transaction', async () => {

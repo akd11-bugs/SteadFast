@@ -21,7 +21,7 @@ export function ObjectsEditor({ initialObjects }: { initialObjects: ObjectWithFi
   const [error, setError] = useState<string | null>(null)
 
   async function create() {
-    if (!name.trim()) return
+    if (busy || !name.trim()) return // Enter while a create is in flight
     setBusy(true)
     setError(null)
     try {

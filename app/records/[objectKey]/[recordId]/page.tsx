@@ -14,7 +14,7 @@ export default async function RecordDetailPage({ params }: { params: Promise<{ o
   const user = await requireUser()
   if (!(await engineEnabled(user))) notFound()
   const { objectKey, recordId } = await params
-  const object = await findObjectType(user, decodeURIComponent(objectKey))
+  const object = await findObjectType(user, objectKey)
   if (!object) notFound()
   // findFirst + recordScope: the id is global, only the scope keeps other orgs' (and others' owned) records out.
   const record = await prisma.objectRecord.findFirst({ where: { id: recordId, ...recordScope(user, object) } })

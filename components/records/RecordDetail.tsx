@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import type { Value } from '@/lib/records/fieldTypes'
-import { api, errorMessage, toDraft, toValue, type Draft, type FieldDTO, type PersonDTO } from '@/lib/records/client'
+import { api, errorMessage, toDraft, toValue, type Draft, type FieldDTO, type PersonDTO, type RecordDTO } from '@/lib/records/client'
 import { FieldInput } from './fields'
 
 // Text-like inputs save on blur; the rest (selects, checkbox, links) on change.
@@ -44,8 +44,18 @@ export function RecordDetail({
     setSaving(f.key)
     setError(null)
     try {
-      await api(`/api/records/${recordId}`, { method: 'PATCH', body: { values: { [f.key]: value } } })
-      saved.current = { ...saved.current, [f.key]: value }
+      const res = await api<{ record: RecordDTO }>(`/api/records/${recordId}`, {
+        method: 'PATCH',
+        body: { values: { [f.key]: value } },
+      })
+      // Keep what the server stored (it normalises, e.g. lower-cases emails), not what we sent.
+      const stored = res.record.values[f.key] ?? null
+      saved.current = { ...saved.current, [f.key]: stored }
+      if (latest.current[f.key] === d) {
+        const shown = toDraft(f.type, stored)
+        latest.current = { ...latest.current, [f.key]: shown }
+        setDrafts((prev) => ({ ...prev, [f.key]: shown }))
+      }
       router.refresh() // title and "Updated" come from the server component
     } catch (e) {
       // Roll back to what the server still has, unless the user has since picked something newer.

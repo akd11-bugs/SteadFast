@@ -243,11 +243,11 @@ export function FieldInput({
           aria-invalid={badDate || undefined}
         />
       )
-      if (!badDate) return input
+      // Same wrapper either way: swapping it would remount the input mid-edit and drop focus (and the blur save).
       return (
         <div className="space-y-1">
           {input}
-          <p className="text-xs text-destructive">Enter a full date</p>
+          {badDate && <p className="text-xs text-destructive">Enter a full date</p>}
         </div>
       )
     }
@@ -323,7 +323,13 @@ function LinkPicker({ id, field, ids, onChange }: { id: string; field: FieldDTO;
         </div>
       )}
       <div className="relative">
-        <Input id={id} placeholder="Search records to link…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input
+          id={id}
+          placeholder="Search records to link…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} // don't submit the surrounding form
+        />
         {loading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" aria-hidden />}
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}

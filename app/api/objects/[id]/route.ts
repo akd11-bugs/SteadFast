@@ -52,7 +52,13 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const n = await prisma.objectRecord.count({ where: { orgId: existing.orgId, objectTypeId: existing.id } })
   if (n > 0) return NextResponse.json({ error: `${existing.name} still has ${n} record(s); delete them first` }, { status: 409 })
   const links = await prisma.objectField.count({
-    where: { orgId: existing.orgId, type: 'link', config: { path: ['targetObjectTypeId'], equals: existing.id } },
+    // Its own self-links are cascade-deleted with it, so only other objects' fields block.
+    where: {
+      orgId: existing.orgId,
+      type: 'link',
+      objectTypeId: { not: existing.id },
+      config: { path: ['targetObjectTypeId'], equals: existing.id },
+    },
   })
   if (links > 0) {
     return NextResponse.json({ error: `Fields in other objects link to ${existing.name}; delete those fields first` }, { status: 409 })

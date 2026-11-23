@@ -13,7 +13,7 @@ export default async function ObjectRecordsPage({ params }: { params: Promise<{ 
   const user = await requireUser()
   if (!(await engineEnabled(user))) notFound()
   const { objectKey } = await params
-  const object = await findObjectType(user, decodeURIComponent(objectKey))
+  const object = await findObjectType(user, objectKey)
   if (!object) notFound()
 
   const [fields, people] = await Promise.all([

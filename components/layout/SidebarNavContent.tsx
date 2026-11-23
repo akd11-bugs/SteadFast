@@ -13,6 +13,7 @@ import {
   BarChart3,
   CalendarDays,
   PenTool,
+  Database,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SessionUser } from '@/lib/session'
@@ -84,6 +85,14 @@ export function SidebarNavContent({
             </NavItem>
           </NavSection>
         </>
+      )}
+      {/* Outside the role branch so operations users see it too. */}
+      {user.recordEngineEnabled && (
+        <NavSection title="Data" collapsed={collapsed}>
+          <NavItem href="/records" icon={<Database className="h-4 w-4" />} {...item}>
+            Records
+          </NavItem>
+        </NavSection>
       )}
       <NavSection title="System" collapsed={collapsed}>
         <NavItem href="/settings" icon={<Settings className="h-4 w-4" />} {...item}>

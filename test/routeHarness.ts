@@ -31,6 +31,13 @@ function op(model: string, name: string) {
   }
 }
 
+function raw(name: string, fallback: unknown) {
+  return (q: { sql: string; values: unknown[] }) => {
+    calls.push({ model: '$raw', op: name, args: { sql: q.sql, values: q.values } })
+    return Promise.resolve(results.has(`$raw.${name}`) ? results.get(`$raw.${name}`) : fallback)
+  }
+}
+
 function model(name: string) {
   return {
     findMany: op(name, 'findMany'),
@@ -63,6 +70,12 @@ export const prismaStub = {
   onboardingStepDefinition: model('onboardingStepDefinition'),
   pendingSubStatusDefinition: model('pendingSubStatusDefinition'),
   leadFieldDefinition: model('leadFieldDefinition'),
+  objectType: model('objectType'),
+  objectField: model('objectField'),
+  objectRecord: model('objectRecord'),
+  // Raw SQL is recorded as { sql, values } so tests can assert bound params.
+  $queryRaw: raw('$queryRaw', []),
+  $executeRaw: raw('$executeRaw', 0),
   $transaction: async (arg: unknown) =>
     typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prismaStub) : arg,
 }

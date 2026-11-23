@@ -57,6 +57,10 @@ model Organization {
   // a meaningfully different risk level than the read-only reports key.
   agentApiKey String? @unique
 
+  // Record engine (docs/specs/record-engine.md). Off until an org is moved
+  // over; while false the engine pages and APIs 404 for that org.
+  recordEngineEnabled Boolean @default(false)
+
   emailConfig    OrgEmailConfig?
   sheetConnector OrgSheetConnector?
   mcpConnections OrgMcpConnection[]
@@ -664,4 +668,61 @@ model WhiteboardElement {
   updatedAt DateTime @updatedAt
 
   @@index([orgId])
+}
+
+// ── Record engine (docs/specs/record-engine.md, step 1) ─────────────────────
+// An org defines its own objects ("Deals", "Orders"), each with its own
+// fields; a record stores its values in one JSONB column keyed by field key.
+// Why JSONB, and its limits: docs/defence/record-engine.md.
+
+model ObjectType {
+  id              String         @id @default(cuid())
+  orgId           String
+  key             String // stable, generated; never editable (URLs and templates use it)
+  name            String // plural display name, editable
+  icon            String?
+  position        Int            @default(0)
+  // "Members see only records they own": the engine's version of today's
+  // sales-owner rule (leadScope). Admin and operations always see all.
+  restrictToOwner Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  fields          ObjectField[]
+  records         ObjectRecord[]
+
+  @@unique([orgId, key])
+  @@index([orgId, position])
+}
+
+model ObjectField {
+  id           String     @id @default(cuid())
+  orgId        String
+  objectTypeId String
+  objectType   ObjectType @relation(fields: [objectTypeId], references: [id], onDelete: Cascade)
+  key          String // stable, generated; values are stored under it
+  label        String
+  type         String // see FIELD_TYPES in lib/records/fieldTypes.ts
+  config       Json       @default("{}") // options, currency, link target — shape per type
+  required     Boolean    @default(false)
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@unique([objectTypeId, key])
+  @@index([orgId, objectTypeId, position])
+}
+
+// Named ObjectRecord, not Record, so it never shadows TypeScript's Record<K,V>.
+model ObjectRecord {
+  id           String     @id @default(cuid())
+  orgId        String
+  objectTypeId String
+  objectType   ObjectType @relation(fields: [objectTypeId], references: [id], onDelete: Cascade)
+  values       Json       @default("{}")
+  ownerId      String?
+  createdById  String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([orgId, objectTypeId, updatedAt])
+  @@index([values(ops: JsonbPathOps)], type: Gin)
 }

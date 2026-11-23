@@ -52,7 +52,14 @@ export default async function SettingsPage() {
           <p className="text-sm text-muted-foreground">Account, organization, pipeline, and connected tools.</p>
         </div>
         {admin && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {user.recordEngineEnabled && (
+              <Link href="/settings/objects">
+                <Button variant="outline" size="sm">
+                  Objects
+                </Button>
+              </Link>
+            )}
             <Link href="/settings/ops">
               <Button variant="outline" size="sm">
                 Operations

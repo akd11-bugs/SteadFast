@@ -29,6 +29,9 @@ export interface SessionUser {
   orgLogoUrl: string | null
   orgLogoDataUrl: string | null
   orgBrandColor: string | null
+  // Optional so hand-built SessionUser fixtures stay valid. Drives the
+  // "Records" nav entry only; pages and routes re-check via engineEnabled().
+  recordEngineEnabled?: boolean
 }
 
 export function resolveVisibleOrgIds(orgId: string): string[] {
@@ -42,7 +45,7 @@ export function resolveVisibleOrgIds(orgId: string): string[] {
 const hydrate = cache(async (user: Pick<User, 'id' | 'name' | 'email' | 'role' | 'orgId'>): Promise<SessionUser> => {
   const org = await prisma.organization.findUnique({
     where: { id: user.orgId },
-    select: { name: true, logoUrl: true, logoDataUrl: true, brandColor: true },
+    select: { name: true, logoUrl: true, logoDataUrl: true, brandColor: true, recordEngineEnabled: true },
   })
   return {
     ...user,
@@ -51,6 +54,7 @@ const hydrate = cache(async (user: Pick<User, 'id' | 'name' | 'email' | 'role' |
     orgLogoUrl: org?.logoUrl ?? null,
     orgLogoDataUrl: org?.logoDataUrl ?? null,
     orgBrandColor: org?.brandColor ?? null,
+    recordEngineEnabled: org?.recordEngineEnabled ?? false,
   }
 })
 

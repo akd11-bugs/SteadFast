@@ -18,6 +18,7 @@ Every claim cites code. If the code changes, the brief changes in the same commi
 | Sending email (Gmail OAuth, SMTP fallback) | [gmail-sending.md](gmail-sending.md) |
 | Google Sheet sync and its review step | [sheet-sync.md](sheet-sync.md) |
 | Workflow rules | [workflow-rules.md](workflow-rules.md) |
+| Record engine: custom objects, fields, records, table view | [record-engine.md](record-engine.md) |
 
 ## Phase 1 changes (stability and security)
 

@@ -33,7 +33,7 @@ record by id returns "not found", as if it never existed.
 |---|---|---|
 | Anonymous visitor | Call any API | `requireApiUser()` returns 401 for any non-`ok` session (`lib/session.ts:157-160`). Pages redirect (`lib/session.ts:120-124`, `130-136`). Tested: `test/tenantIsolation.test.ts:83`. |
 | Anonymous visitor | Use the dev auth bypass | Off when `NODE_ENV === 'production'` (`lib/session.ts:86`), and needs a cookie plus an env email (`lib/session.ts:87-90`). |
-| Anonymous visitor | Guess rep PINs | 5 failures lock that rep for 15 min (`lib/repAuth.ts:5-6`, `44-52`). 20 attempts per IP per 15 min (`app/api/rep/login/route.ts:13-24`). |
+| Anonymous visitor | Guess rep PINs | 5 failures lock that rep for 15 min. The attempt is counted atomically before bcrypt runs, so 20 parallel guesses check at most 5 (`lib/repAuth.ts`, `verifyRepLogin`; `test/lockout.test.ts`). 20 attempts per IP per 15 min (`app/api/rep/login/route.ts:13-24`). |
 | Anonymous visitor | Probe which org slugs exist | Unknown slug gives the same "Invalid name or PIN" 401 as a bad PIN (`app/api/rep/login/route.ts:39-45`). But an unknown name in a real org also gives 401 (`lib/repAuth.ts:32-35`), while a locked real name gives 423 (`lib/repAuth.ts:37-40`). That 423 confirms a name exists in that org. |
 | Sales rep | Open a colleague's lead by URL | `leadScope` adds `ownerId: user.id` for sales (`lib/session.ts:185`). Miss is 404. Tested: `test/tenantIsolation.test.ts:105`, `test/integration.test.ts:85`. |
 | Sales rep | Write an activity on a lead they do not own | Activities route checks the lead is in scope first. Tested: `test/tenantIsolation.test.ts:196`. |

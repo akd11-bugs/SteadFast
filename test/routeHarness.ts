@@ -73,6 +73,7 @@ export const prismaStub = {
   objectType: model('objectType'),
   objectField: model('objectField'),
   objectRecord: model('objectRecord'),
+  skillRun: model('skillRun'),
   // Raw SQL is recorded as { sql, values } so tests can assert bound params.
   $queryRaw: raw('$queryRaw', []),
   $executeRaw: raw('$executeRaw', 0),

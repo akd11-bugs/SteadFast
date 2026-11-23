@@ -25,9 +25,45 @@ interface SyncResult {
   skipped: { row: number; reason: string }[]
   customFieldWarnings: { row: number; reason: string }[]
   error?: string
+  busy?: true // another run held this org's lock; nothing was done
+}
+
+// One sync per org at a time. Two overlapping runs both read the same cursor,
+// both passed the duplicate check, and both created every new row (audit
+// 2026-11-23). The lock is a SyncCursor row whose value is the holder's start
+// time as a fixed-width digit string ('' = free), claimed with one atomic
+// conditional UPDATE. Fixed width keeps string order equal to time order.
+// shortcut: a run taking longer than LOCK_TTL_MS can overlap the next one; raise it if syncs ever get that slow.
+const LOCK_TTL_MS = 10 * 60 * 1000
+const stamp = (ms: number) => String(ms).padStart(15, '0')
+
+async function claimSyncLock(key: string): Promise<string | null> {
+  const now = Date.now()
+  await prisma.syncCursor.createMany({ data: [{ key, value: '' }], skipDuplicates: true })
+  const token = stamp(now)
+  const { count } = await prisma.syncCursor.updateMany({
+    where: { key, value: { lt: stamp(now - LOCK_TTL_MS) } },
+    data: { value: token },
+  })
+  return count === 1 ? token : null
+}
+
+async function releaseSyncLock(key: string, token: string) {
+  await prisma.syncCursor.updateMany({ where: { key, value: token }, data: { value: '' } })
 }
 
 async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
+  const lockKey = `${source.cursorKey}:lock`
+  const token = await claimSyncLock(lockKey)
+  if (!token) return { source: source.label, created: 0, skipped: [], customFieldWarnings: [], busy: true }
+  try {
+    return await syncOneSheetLocked(source)
+  } finally {
+    await releaseSyncLock(lockKey, token)
+  }
+}
+
+async function syncOneSheetLocked(source: SheetSource): Promise<SyncResult> {
   const startedAt = new Date()
   // Started up front (not recorded once at the end) so its id exists before
   // importLeadRows runs — JobRunIssue rows (skipped/stage_unmapped) attach to
@@ -58,7 +94,12 @@ async function syncOneSheet(source: SheetSource): Promise<SyncResult> {
     })
 
     const cursor = await prisma.syncCursor.findUnique({ where: { key: source.cursorKey } })
-    const alreadyProcessed = cursor ? Number(cursor.value) || 0 : 0
+    let alreadyProcessed = cursor ? Number(cursor.value) || 0 : 0
+    // The cursor is a row count. If rows were deleted, slice(count) silently
+    // skipped every new row forever. Rescan the whole sheet instead: the
+    // import's duplicate check skips leads that already exist.
+    // shortcut: a re-sort that keeps the row count is not detected; key the cursor on a stable column if users sort live sheets.
+    if (alreadyProcessed > dataRows.length) alreadyProcessed = 0
     const newRows = dataRows.slice(alreadyProcessed)
 
     if (newRows.length === 0) {

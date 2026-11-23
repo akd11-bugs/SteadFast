@@ -38,6 +38,16 @@ Every claim cites code. If the code changes, the brief changes in the same commi
 | Email send: a logging failure after sending returns ok | "Try again" made users send twice | `app/api/email/send/route.ts` |
 | Failed saves, deletes, task ticks and loads now say so | They silently looked like success | `LeadRecordView`, `LeadTasksTab`, `TasksList`, `LeadDetailDialog`, `ActivityFeed` |
 
+## Audit fixes (2026-11-23)
+
+| Change | Why | Where |
+|---|---|---|
+| Saved skill run looked up with `findFirst` + org; whole-pipeline runs shown to admin/operations only | `?runId=` used `findUnique` by id: any org could open another org's pipeline analysis, and sales could open admin runs | `app/skills/[skillId]/page.tsx`; `test/tenantIsolation.test.ts` |
+| Sheet sync locks per org; workflow has `concurrency:` | Overlapping runs created every new row twice | `app/api/cron/sync-leads-sheet/route.ts` `claimSyncLock`; [sheet-sync.md](sheet-sync.md) |
+| Sheet sync rescans when the sheet shrank | Deleting a row made every later new row invisible to the sync | same file, `alreadyProcessed` |
+| PIN and password lockouts count atomically before checking | Parallel guesses all read 0, so the lock never triggered | `lib/repAuth.ts`, `lib/loginLockout.ts`; `test/lockout.test.ts` |
+| Agent API per-IP limit charged only on a bad key (`peekRateLimit`) | Valid agents were capped at 20 calls per 5 min, shared across orgs behind one IP | `lib/agentAuth.ts`, `lib/rateLimit.ts`; `test/agentAuth.test.ts` |
+
 ## Open, not yet fixed (next batch)
 
 - **Rate limits trust the first `X-Forwarded-For` entry** (`lib/rateLimit.ts:52-55`), so they can be dodged. The fix depends on how Render's proxy chain builds that header; it must be confirmed before changing, or every user could end up sharing one limit.
@@ -47,3 +57,4 @@ Every claim cites code. If the code changes, the brief changes in the same commi
 - **SMTP settings:** an admin can point the host at their own server and receive the password a previous admin saved; any host/port is accepted (SSRF).
 - **Invites never expire**; public intake has no duplicate check.
 - **Company edit/delete has no role check** (product decision pending).
+- **From the 2026-11-23 audit, still open:** no spend cap or prompt-size cap on skill runs; MCP connection URLs fetched with no SSRF guard; a rep's session survives a PIN reset; the lead dialog can show and save to a stale lead; backdated activities move `lastActivityAt` back, and reports use UTC days; resolving an old sync issue can wipe a won deal; onboarding steps can be set off-stage or deleted while in use; free-text `ownerName`; `xlsx` 0.18.5 advisories; internal error text returned to clients; no timeouts on Anthropic, Python or Vision; SSRF guard misses `::` and `100.64/10`.

@@ -8,6 +8,12 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
+# A slow run must not overlap the next tick (or a manual run): both would read
+# the same cursor and import every new row twice. The route also locks per org.
+concurrency:
+  group: sync-leads-sheet
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest

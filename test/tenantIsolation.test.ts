@@ -49,6 +49,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/shared/RecordNavigator', () => ({ RecordNavigator: () => null }))
 vi.mock('@/components/leads/LeadPageView', () => ({ LeadPageView: () => null }))
 vi.mock('@/components/leads/LeadsTable', () => ({ LeadsTable: () => null }))
+vi.mock('@/components/skills/SkillRunner', () => ({ SkillRunner: () => null }))
 
 // Tenant-boundary tests for the routes the authorization audit ranked
 // highest. Each handler is exercised for real; assertions are on the WHERE
@@ -64,6 +65,7 @@ const tasksIdRoute = await import('@/app/api/tasks/[id]/route')
 const companiesIdRoute = await import('@/app/api/companies/[id]/route')
 const leadDetailPage = (await import('@/app/leads/[id]/page')).default
 const leadsPage = (await import('@/app/leads/page')).default
+const skillPage = (await import('@/app/skills/[skillId]/page')).default
 
 function req(url = 'http://test/api/x', init?: RequestInit) {
   return new Request(url, init)
@@ -325,5 +327,46 @@ describe('no handler ever queries an org other than the caller org', () => {
       }
       for (const seen of orgIdsSeen()) expect(seen).toBe(ORG)
     }
+  })
+})
+
+describe('/skills/[skillId]?runId= — a saved run is tenant-scoped', () => {
+  // The page passes pastRun to <SkillRunner>; walk the returned tree to read it.
+  function pastRunOf(node: unknown): unknown {
+    if (!node || typeof node !== 'object') return undefined
+    const props = (node as { props?: Record<string, unknown> }).props
+    if (!props) return undefined
+    if ('pastRun' in props) return props.pastRun
+    const kids = ([] as unknown[]).concat(props.children ?? [])
+    for (const k of kids) {
+      const found = pastRunOf(k)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  const open = async (runId: string) =>
+    pastRunOf(await skillPage({
+      params: Promise.resolve({ skillId: 'pipeline-hygiene-audit' }),
+      searchParams: Promise.resolve({ runId }),
+    }))
+
+  it("looks the run up inside the user's org, never by bare id", async () => {
+    session.user = asUser({ role: 'admin', id: 'u-admin' })
+    results.set('skillRun.findFirst', null)
+    expect(await open('run-from-org-b')).toBeNull()
+    const lookup = calls.find(c => c.model === 'skillRun' && c.op === 'findFirst')!
+    expect(lookup.args.where).toMatchObject({ id: 'run-from-org-b', orgId: { in: [ORG] } })
+    expect(calls.some(c => c.model === 'skillRun' && c.op === 'findUnique')).toBe(false)
+  })
+
+  it('shows a whole-pipeline run to an admin', async () => {
+    session.user = asUser({ role: 'admin', id: 'u-admin' })
+    results.set('skillRun.findFirst', { id: 'run-1', orgId: ORG, leadId: null })
+    expect(await open('run-1')).toMatchObject({ id: 'run-1' })
+  })
+
+  it('hides a whole-pipeline run from a sales user (it covers leads they cannot see)', async () => {
+    results.set('skillRun.findFirst', { id: 'run-1', orgId: ORG, leadId: null })
+    expect(await open('run-1')).toBeNull()
   })
 })

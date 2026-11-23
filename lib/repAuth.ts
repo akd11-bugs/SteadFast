@@ -34,22 +34,41 @@ export async function verifyRepLogin(orgId: string, name: string, pin: string): 
     return { ok: false, status: 401, error: 'Invalid name or PIN' }
   }
 
-  if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
+  const now = new Date()
+  if (user.pinLockedUntil && user.pinLockedUntil > now) {
     await logAudit({ action: 'rep_login_locked', targetUserId: user.id, metadata: { name: normalizedName } })
+    return { ok: false, status: 423, error: 'Too many attempts — try again in 15 minutes' }
+  }
+  // An expired lock starts a fresh count. Conditional, so it can't clear a lock set meanwhile.
+  if (user.pinLockedUntil) {
+    await prisma.user.updateMany({
+      where: { id: user.id, pinLockedUntil: { lte: now } },
+      data: { pinFailedAttempts: 0, pinLockedUntil: null },
+    })
+  }
+
+  // Count the attempt BEFORE checking it. Read-then-write let parallel guesses
+  // all read 0 and never lock; an atomic increment gives each its own number.
+  const { pinFailedAttempts: attempts } = await prisma.user.update({
+    where: { id: user.id },
+    data: { pinFailedAttempts: { increment: 1 } },
+    select: { pinFailedAttempts: true },
+  })
+  const lockingNow = attempts >= MAX_FAILED_ATTEMPTS
+  const lock = () =>
+    prisma.user.updateMany({
+      where: { id: user.id, pinLockedUntil: null },
+      data: { pinLockedUntil: new Date(Date.now() + LOCKOUT_MS) },
+    })
+  if (attempts > MAX_FAILED_ATTEMPTS) {
+    await lock() // self-heals if the attempt that hit the limit never set the lock
+    await logAudit({ action: 'rep_login_locked', targetUserId: user.id, metadata: { name: normalizedName, attempts } })
     return { ok: false, status: 423, error: 'Too many attempts — try again in 15 minutes' }
   }
 
   const valid = await bcrypt.compare(pin, user.pinHash)
   if (!valid) {
-    const attempts = user.pinFailedAttempts + 1
-    const lockingNow = attempts >= MAX_FAILED_ATTEMPTS
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        pinFailedAttempts: attempts,
-        pinLockedUntil: lockingNow ? new Date(Date.now() + LOCKOUT_MS) : user.pinLockedUntil,
-      },
-    })
+    if (lockingNow) await lock()
     await logAudit({
       action: lockingNow ? 'rep_login_locked' : 'rep_login_failed',
       targetUserId: user.id,

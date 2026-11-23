@@ -36,24 +36,43 @@ export async function signInWithLockout(email: string, password: string): Promis
 
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
 
-  if (user?.lockedUntil && user.lockedUntil > new Date()) {
+  const now = new Date()
+  if (user?.lockedUntil && user.lockedUntil > now) {
     await logAudit({ action: 'login_locked', targetUserId: user.id, metadata: { email: normalizedEmail } })
     return { ok: false, status: 423, message: 'Too many attempts — try again in 15 minutes' }
+  }
+
+  // Count the attempt BEFORE checking it (same reasoning as lib/repAuth.ts):
+  // read-then-write let parallel guesses all read 0 and never lock.
+  let attempts = 0
+  const lock = (id: string) =>
+    prisma.user.updateMany({ where: { id, lockedUntil: null }, data: { lockedUntil: new Date(Date.now() + LOCKOUT_MS) } })
+  if (user) {
+    // An expired lock starts a fresh count. Conditional, so it can't clear a lock set meanwhile.
+    if (user.lockedUntil) {
+      await prisma.user.updateMany({
+        where: { id: user.id, lockedUntil: { lte: now } },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      })
+    }
+    ;({ failedLoginAttempts: attempts } = await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: { increment: 1 } },
+      select: { failedLoginAttempts: true },
+    }))
+    if (attempts > MAX_FAILED_ATTEMPTS) {
+      await lock(user.id) // self-heals if the attempt that hit the limit never set the lock
+      await logAudit({ action: 'login_locked', targetUserId: user.id, metadata: { email: normalizedEmail, attempts } })
+      return { ok: false, status: 423, message: 'Too many attempts — try again in 15 minutes' }
+    }
   }
 
   const { error } = await neonAuth.signIn.email({ email: normalizedEmail, password })
 
   if (error) {
     if (user) {
-      const attempts = user.failedLoginAttempts + 1
       const lockingNow = attempts >= MAX_FAILED_ATTEMPTS
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedLoginAttempts: attempts,
-          lockedUntil: lockingNow ? new Date(Date.now() + LOCKOUT_MS) : user.lockedUntil,
-        },
-      })
+      if (lockingNow) await lock(user.id)
       await logAudit({
         action: lockingNow ? 'login_locked' : 'login_failed',
         targetUserId: user.id,

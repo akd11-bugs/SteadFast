@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Sparkles, Zap } from 'lucide-react'
 import { SkillRunner } from '@/components/skills/SkillRunner'
 import { prisma } from '@/lib/db'
-import { requireUser, leadScope } from '@/lib/session'
+import { requireUser, leadScope, isAdmin, isOperations } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +28,8 @@ export default async function SkillOutputPage({
   // — otherwise treat it as not found rather than leaking another rep's data.
   let pastRun: Awaited<ReturnType<typeof prisma.skillRun.findUnique>> | null = null
   if (runId) {
-    const run = await prisma.skillRun.findUnique({ where: { id: runId } })
+    // findFirst + org: findUnique by a URL id skipped the tenant filter (audit 2026-11-23).
+    const run = await prisma.skillRun.findFirst({ where: { id: runId, orgId: { in: user.visibleOrgIds } } })
     if (run?.leadId) {
       const visible = await prisma.lead.findFirst({
         where: { id: run.leadId, ...leadScope(user) },
@@ -36,7 +37,8 @@ export default async function SkillOutputPage({
       })
       pastRun = visible ? run : null
     } else {
-      pastRun = run
+      // Portfolio runs cover every lead in the org, so only roles that see every lead may open them.
+      pastRun = run && (isAdmin(user) || isOperations(user)) ? run : null
     }
   }
 

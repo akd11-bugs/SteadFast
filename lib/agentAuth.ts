@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { checkRateLimit, getClientIp, peekRateLimit } from '@/lib/rateLimit'
 
 export interface AgentOrg {
   orgId: string
@@ -8,8 +8,8 @@ export interface AgentOrg {
 
 // Two separate limits, because they defend against different things.
 //
-// UNAUTH is per-IP and tight: every request that arrives without a valid key
-// burns from it, so sweeping the keyspace from one host dies quickly. AUTH is
+// UNAUTH is per-IP and tight: only requests without a valid key burn from
+// it, so sweeping the keyspace from one host dies quickly. AUTH is
 // per-org and generous — agents retry and poll far harder than humans, and an
 // MCP client can legitimately fan out several calls per user turn — but it
 // still bounds what a single leaked key can do to the database.
@@ -46,13 +46,16 @@ export async function requireAgentOrg(req: Request): Promise<AgentOrg | NextResp
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Check the per-IP budget before touching the database, so an invalid-key
-  // flood can't make us run a query per attempt.
-  const unauth = checkRateLimit(`agent-unauth:${ip}`, UNAUTH_MAX, UNAUTH_WINDOW_MS)
+  // Peek at the per-IP budget before touching the database, so an invalid-key
+  // flood can't make us run a query per attempt. Only a failed lookup spends
+  // it: charging valid calls here capped every real agent at 20 per 5 min
+  // (and shared that cap across orgs behind one egress IP).
+  const unauth = peekRateLimit(`agent-unauth:${ip}`, UNAUTH_MAX)
   if (!unauth.allowed) return tooMany(unauth.retryAfterSeconds)
 
   const org = await prisma.organization.findUnique({ where: { agentApiKey: token }, select: { id: true } })
   if (!org) {
+    checkRateLimit(`agent-unauth:${ip}`, UNAUTH_MAX, UNAUTH_WINDOW_MS)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

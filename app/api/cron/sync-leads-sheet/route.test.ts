@@ -4,6 +4,8 @@ const userFindFirstMock = vi.fn()
 const userFindManyMock = vi.fn()
 const cursorFindUniqueMock = vi.fn()
 const cursorUpsertMock = vi.fn()
+const cursorCreateManyMock = vi.fn()
+const cursorUpdateManyMock = vi.fn()
 const orgSheetConnectorFindManyMock = vi.fn()
 const orgSheetConnectorUpdateMock = vi.fn()
 const getSheetRowsMock = vi.fn()
@@ -21,6 +23,8 @@ vi.mock('@/lib/db', () => ({
     syncCursor: {
       findUnique: (...args: unknown[]) => cursorFindUniqueMock(...args),
       upsert: (...args: unknown[]) => cursorUpsertMock(...args),
+      createMany: (...args: unknown[]) => cursorCreateManyMock(...args),
+      updateMany: (...args: unknown[]) => cursorUpdateManyMock(...args),
     },
     orgSheetConnector: {
       findMany: (...args: unknown[]) => orgSheetConnectorFindManyMock(...args),
@@ -64,6 +68,8 @@ beforeEach(() => {
   userFindManyMock.mockReset()
   cursorFindUniqueMock.mockReset()
   cursorUpsertMock.mockReset()
+  cursorCreateManyMock.mockReset()
+  cursorUpdateManyMock.mockReset()
   orgSheetConnectorFindManyMock.mockReset()
   orgSheetConnectorUpdateMock.mockReset()
   getSheetRowsMock.mockReset()
@@ -75,6 +81,8 @@ beforeEach(() => {
   userFindManyMock.mockResolvedValue([{ id: 'org-a-owner', name: 'Org A Owner' }])
   cursorFindUniqueMock.mockResolvedValue(null)
   cursorUpsertMock.mockResolvedValue({})
+  cursorCreateManyMock.mockResolvedValue({ count: 0 })
+  cursorUpdateManyMock.mockResolvedValue({ count: 1 }) // lock claimed and released
   leadFieldDefinitionFindManyMock.mockResolvedValue([])
   orgSheetConnectorFindManyMock.mockResolvedValue([
     { orgId: 'org-a', sheetId: 'org-a-sheet', sheetRange: 'Leads', defaultOwnerUserId: 'org-a-owner' },
@@ -93,6 +101,45 @@ afterEach(() => {
 })
 
 describe('POST /api/cron/sync-leads-sheet', () => {
+  it('skips an org whose sync lock is already held, without reading the sheet', async () => {
+    cursorUpdateManyMock.mockResolvedValue({ count: 0 })
+    const res = await POST(req('test-key'))
+    const body = await res.json()
+    expect(body.results).toEqual([{ source: 'org:org-a', created: 0, skipped: [], customFieldWarnings: [], busy: true }])
+    expect(getSheetRowsMock).not.toHaveBeenCalled()
+    expect(startJobRunMock).not.toHaveBeenCalled()
+  })
+
+  it('claims the lock only when free or stale, and releases it with its own token', async () => {
+    getSheetRowsMock.mockResolvedValue([['Company', 'Email']])
+    await POST(req('test-key'))
+    const [claim, release] = cursorUpdateManyMock.mock.calls.map((c) => c[0])
+    expect(claim.where.key).toBe('leads-sheet:org:org-a:lock')
+    expect(claim.where.value.lt).toMatch(/^\d{15}$/)
+    expect(claim.data.value).toMatch(/^\d{15}$/)
+    expect(release).toEqual({ where: { key: 'leads-sheet:org:org-a:lock', value: claim.data.value }, data: { value: '' } })
+  })
+
+  it('releases the lock even when the sync fails', async () => {
+    getSheetRowsMock.mockRejectedValue(new Error('google down'))
+    await POST(req('test-key'))
+    expect(cursorUpdateManyMock).toHaveBeenCalledTimes(2)
+    expect(cursorUpdateManyMock.mock.calls[1][0].data).toEqual({ value: '' })
+  })
+
+  it('rescans the whole sheet when rows were deleted below the cursor, instead of skipping new rows', async () => {
+    getSheetRowsMock.mockResolvedValue([
+      ['Company', 'Email'],
+      ['Acme', 'a@acme.com'],
+      ['NewCo', 'new@newco.com'],
+    ])
+    cursorFindUniqueMock.mockResolvedValue({ value: '5' }) // sheet used to have 5 rows
+    await POST(req('test-key'))
+    const rows = importLeadRowsMock.mock.calls[0][0]
+    expect(rows.map((r: { email: string }) => r.email)).toEqual(['a@acme.com', 'new@newco.com'])
+    expect(cursorUpsertMock.mock.calls[0][0].update).toEqual({ value: '2' })
+  })
+
   it('returns 503 when CRON_SYNC_API_KEY is not configured', async () => {
     delete process.env.CRON_SYNC_API_KEY
     const res = await POST(req('anything'))

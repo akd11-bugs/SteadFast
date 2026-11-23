@@ -47,6 +47,14 @@ export function checkRateLimit(key: string, limit: number, windowMs: number): Ra
   return { allowed: true, retryAfterSeconds: 0 }
 }
 
+// Reads a bucket without charging it — for limits that only failures should spend.
+export function peekRateLimit(key: string, limit: number): RateLimitResult {
+  const now = Date.now()
+  const bucket = buckets.get(key)
+  if (!bucket || bucket.resetAt <= now || bucket.count < limit) return { allowed: true, retryAfterSeconds: 0 }
+  return { allowed: false, retryAfterSeconds: Math.ceil((bucket.resetAt - now) / 1000) }
+}
+
 // Render (and most non-Vercel hosts) sit behind a reverse proxy — the real
 // client IP arrives via X-Forwarded-For, not the socket address.
 export function getClientIp(req: Request): string {

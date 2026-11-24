@@ -105,6 +105,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // from components/leads/OnboardingProgressPanel.tsx while stage stays
   // 'onboarding'; no remark required for these.
   const nextSubStage: string | null | undefined = body.onboardingSubStage !== undefined ? body.onboardingSubStage : undefined
+  // Steps only exist inside onboarding; otherwise anyone could mark a 'new'
+  // lead 'final_onboarded' and inflate the onboarded count in reports.
+  if (nextSubStage !== undefined && existing.stage !== 'onboarding') {
+    return NextResponse.json({ error: 'Onboarding steps can only change while the lead is in onboarding' }, { status: 400 })
+  }
 
   const nextOnboardedAt =
     nextSubStage === 'final_onboarded'
@@ -192,7 +197,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       ...(nextSubStage !== undefined && { onboardingSubStage: nextSubStage }),
       ...(nextOnboardedAt !== undefined && { onboardedAt: nextOnboardedAt }),
       ...(body.estimatedVolume !== undefined && { estimatedVolume: Number(body.estimatedVolume) }),
-      ...(body.ownerName !== undefined && { ownerName: body.ownerName }),
+      // ownerName is not editable here: it must always match ownerId, which
+      // only the admin bulk reassign (/api/leads/bulk) changes.
       ...(body.effort !== undefined && { effort: body.effort }),
       ...(body.quality !== undefined && { quality: body.quality }),
       ...(body.type !== undefined && { type: body.type }),

@@ -52,6 +52,12 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (existing.isCore) return NextResponse.json({ error: 'The final step cannot be deleted' }, { status: 400 })
 
+  // Leads on this step would lose their place in onboarding. Same guard as stage delete.
+  const onStep = await prisma.lead.count({ where: { orgId: user.orgId, onboardingSubStage: existing.key } })
+  if (onStep > 0) {
+    return NextResponse.json({ error: `${onStep} lead${onStep === 1 ? ' is' : 's are'} still on this step — move them first` }, { status: 409 })
+  }
+
   await prisma.onboardingStepDefinition.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }

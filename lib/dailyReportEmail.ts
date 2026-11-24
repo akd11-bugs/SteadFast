@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { sendEmailAs } from '@/lib/email'
+import { istDate, istDayEnd, istParts } from '@/lib/istDate'
 
 const ACTOR_ACTIVITY_TYPES = ['call', 'email', 'meeting', 'note', 'stage_change']
 
@@ -13,16 +14,14 @@ const TYPE_LABELS: Record<string, string> = {
 
 const IST = 'Asia/Kolkata'
 
-function dayRange(date: Date): { start: Date; end: Date } {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59, 59, 999)
-  return { start, end }
+// The IST calendar day containing `date`.
+export function dayRange(date: Date): { start: Date; end: Date } {
+  const { y, m, d } = istParts(date)
+  return { start: istDate(y, m, d), end: istDayEnd(y, m, d) }
 }
 
 function yesterday(): Date {
-  const d = new Date()
-  d.setDate(d.getDate() - 1)
-  return d
+  return new Date(Date.now() - 24 * 60 * 60 * 1000)
 }
 
 function formatTime(date: Date): string {

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { tryDecrypt } from '@/lib/crypto'
+import { assertSafeWebhookUrl } from '@/lib/ssrfGuard'
 import type { ToolDef } from './protocol'
 import type { McpCtx } from './tools'
 
@@ -41,6 +42,14 @@ async function callRemote(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), HANDSHAKE_TIMEOUT_MS)
   try {
+    // The URL is admin-supplied: refuse internal hosts (and their redirects),
+    // or any org admin could make our server probe the private network.
+    // Re-checked on every call, so DNS re-pointed after saving is still caught.
+    try {
+      await assertSafeWebhookUrl(serverUrl)
+    } catch {
+      throw new ConnectionError('That server address is not allowed')
+    }
     const res = await fetch(serverUrl, {
       method: 'POST',
       headers: {
@@ -50,7 +59,9 @@ async function callRemote(
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
       signal: controller.signal,
+      redirect: 'manual',
     })
+    if (res.status >= 300 && res.status < 400) throw new ConnectionError('Server tried to redirect; use its final URL')
     if (!res.ok) {
       // Never surface the raw response body — a bad URL commonly 404s into
       // an HTML error page (seen with a misconfigured Google Sheets ID

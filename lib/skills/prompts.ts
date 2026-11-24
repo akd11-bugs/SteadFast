@@ -12,6 +12,8 @@ export interface PromptInput {
   userQuestion?: string     // optional extra focus from the user
 }
 
+export const PORTFOLIO_LEAD_CAP = 200
+
 export function buildSkillPrompt(input: PromptInput): string {
   const { skillText, scope, leads, leadContext, userQuestion } = input
 
@@ -68,11 +70,16 @@ ${JSON.stringify(
 \`\`\``
   }
 
-  // Portfolio view — most data, condensed
-  return `## All open leads (${leads.length} total)
+  // Portfolio view. Capped so cost stays bounded and big pipelines don't
+  // exceed the context window. Leads arrive newest-updated first.
+  const sample = leads.slice(0, PORTFOLIO_LEAD_CAP)
+  const note = leads.length > sample.length
+    ? `\n\nThis is a sample: the ${sample.length} most recently updated of ${leads.length} leads. Say so in your report and do not extrapolate totals.`
+    : ''
+  return `## Open leads (${leads.length} total)${note}
 
 \`\`\`json
-${JSON.stringify(leads.map(serializeLead), null, 2)}
+${JSON.stringify(sample.map(serializeLead), null, 2)}
 \`\`\``
 }
 
@@ -87,7 +94,7 @@ function serializeLead(l: Lead) {
     estimatedVolume: l.estimatedVolume,
     ownerName: l.ownerName,
     lastActivityAt: l.lastActivityAt,
-    activitiesCount: l.activities?.length ?? 0,
+    activitiesCount: l._count?.activities ?? l.activities?.length ?? 0,
     recentActivities: (l.activities ?? [])
       .slice(0, 3)
       .map((a) => ({ type: a.type, date: a.date, description: a.description.slice(0, 200) })),

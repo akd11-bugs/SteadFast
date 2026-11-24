@@ -48,6 +48,25 @@ Every claim cites code. If the code changes, the brief changes in the same commi
 | PIN and password lockouts count atomically before checking | Parallel guesses all read 0, so the lock never triggered | `lib/repAuth.ts`, `lib/loginLockout.ts`; `test/lockout.test.ts` |
 | Agent API per-IP limit charged only on a bad key (`peekRateLimit`) | Valid agents were capped at 20 calls per 5 min, shared across orgs behind one IP | `lib/agentAuth.ts`, `lib/rateLimit.ts`; `test/agentAuth.test.ts` |
 
+## Audit fixes, "should fix" batch (2026-11-24)
+
+| # | Change | Why | Where |
+|---|---|---|---|
+| 6 | Skill runs: 20 per org per hour, question ≤ 2,000 chars, 3 activities per lead, portfolio prompt capped at 200 newest leads and labelled a sample | No ceiling on Anthropic spend; at ~1,500 leads every whole-pipeline run failed "prompt too long" | `app/api/skills/run/route.ts`, `lib/skills/prompts.ts` `PORTFOLIO_LEAD_CAP`; `route.test.ts`, `prompts.test.ts` |
+| 7 | MCP connection URLs pass `assertSafeWebhookUrl` on every call; redirects refused | An org admin could make our server probe `10.x`, `169.254.169.254` and read the error | `lib/mcp/connections.ts` `callRemote`; `connections.test.ts` |
+| 8 | Rep token carries an HMAC tag of the current `pinHash` | Resetting a lost phone's PIN left its 10 h session alive | `lib/repSession.ts` `pinTag`; `lib/repSession.test.ts` |
+| 9 | Lead dialog, command palette and company picker ignore replies for a closed or outdated request | A slow reply for lead A could replace lead B in the dialog, and edits saved to A | `LeadDetailDialog.tsx`, `CommandPalette.tsx`, `CompanyPicker.tsx` (no component test harness; checked by reading) |
+| 10 | `lastActivityAt` only moves forward (future dates count as now); report day/week/month boundaries are IST | Logging last week's call made a fresh lead look stale; a deal won 03:00 IST on the 1st counted in the previous month | `app/api/activities/route.ts`; `lib/istDate.ts` used by `reportRange`, `leadFilters`, `dailyReportEmail`, dashboard; `istDate.test.ts` |
+| 11 | Sync-issue resolve claims the issue atomically and skips the stage change if the lead left `new` | Resolving an old issue could clear `wonAt` and the ops assignment; a double click logged twice | `app/api/jobs/[jobRunId]/issues/[issueId]/resolve/route.ts`; `route.test.ts` |
+| 12 | Onboarding step edits only while the lead is in `onboarding`; a step with leads on it can't be deleted (409); onboarding starts on the org's first step | Sales could mark a `new` lead onboarded; deleting a step stranded leads; deleting `document_submission` broke every new onboarding | `app/api/leads/[id]/route.ts`, `onboarding-steps/[id]/route.ts`, `lib/leadStage.ts`; tests in `tenantIsolation`, `onboarding-steps/[id]/route.test.ts`, `lib/leadStage.test.ts` |
+| 13 | `ownerName` no longer accepted on lead PATCH; the field is read-only, admins reassign via bulk (which sets `ownerId` and the name together) | Free text drifted from `ownerId` and credited the wrong rep in reports | `app/api/leads/[id]/route.ts`, `LeadRecordView.tsx` |
+| 14 | `xlsx` 0.20.3 from SheetJS's CDN; `nodemailer` 10.6.1 | High-severity prototype pollution / ReDoS in browser import; address-parser bugs | `package.json` |
+| 15 | Skill-run and card-scan failures return a generic message; detail goes to the server log | File paths, tracebacks and provider bodies reached the browser | `app/api/skills/run/route.ts`, `app/api/leads/scan-card/route.ts` |
+| 16 | Timeouts: Anthropic 60 s × 1 retry, Python 30 s, Google Vision / Language / Sheets 15 s | SDK default could hold a request ~30 min; a hung script never ended; a hung Sheets call could outlive the 10-min sync lock | `lib/skills/runner.ts`, `lib/cardScan/*`, `lib/googleSheets.ts` |
+| 17 | SSRF guard blocks `::`, `100.64.0.0/10`, hex-form IPv4-mapped IPv6, and bracketed IPv6 literals | `::` reaches localhost; URL parsing turns `::ffff:127.0.0.1` into `::ffff:7f00:1`, which slipped through | `lib/ssrfGuard.ts`; `lib/ssrfGuard.test.ts` |
+
+Residual: the skill-run limit is in-memory per process (`shortcut:` comment); IST is fixed for every org (`shortcut:` in `lib/istDate.ts`); `app/calendar` still builds its month grid in server time; `better-auth` (under `@neondatabase/auth`) advisories need a breaking Neon Auth upgrade; existing rep sessions are signed out once on deploy (old token format).
+
 ## Open, not yet fixed (next batch)
 
 - **Rate limits trust the first `X-Forwarded-For` entry** (`lib/rateLimit.ts:52-55`), so they can be dodged. The fix depends on how Render's proxy chain builds that header; it must be confirmed before changing, or every user could end up sharing one limit.
@@ -57,4 +76,4 @@ Every claim cites code. If the code changes, the brief changes in the same commi
 - **SMTP settings:** an admin can point the host at their own server and receive the password a previous admin saved; any host/port is accepted (SSRF).
 - **Invites never expire**; public intake has no duplicate check.
 - **Company edit/delete has no role check** (product decision pending).
-- **From the 2026-11-23 audit, still open:** no spend cap or prompt-size cap on skill runs; MCP connection URLs fetched with no SSRF guard; a rep's session survives a PIN reset; the lead dialog can show and save to a stale lead; backdated activities move `lastActivityAt` back, and reports use UTC days; resolving an old sync issue can wipe a won deal; onboarding steps can be set off-stage or deleted while in use; free-text `ownerName`; `xlsx` 0.18.5 advisories; internal error text returned to clients; no timeouts on Anthropic, Python or Vision; SSRF guard misses `::` and `100.64/10`.
+- **From the 2026-11-23 audit, still open:** items 18–20 (sync default owner not checked for same org; dead code and unused deps; test gaps). `better-auth` advisories need the Neon Auth major upgrade.

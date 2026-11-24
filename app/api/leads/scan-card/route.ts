@@ -54,7 +54,7 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error('scan-card OCR failed:', err)
     return NextResponse.json(
-      { error: `Could not read that card. (${err instanceof Error ? err.message : String(err)})` },
+      { error: 'Could not read that card. Try a clearer photo.' },
       { status: 502 },
     )
   }

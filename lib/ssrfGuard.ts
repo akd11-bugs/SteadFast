@@ -14,16 +14,24 @@ function isPrivateOrReservedIp(ip: string): boolean {
     if (a === 192 && b === 168) return true // 192.168.0.0/16
     if (a === 169 && b === 254) return true // link-local, incl. cloud metadata
     if (a === 0) return true // 0.0.0.0/8
+    if (a === 100 && b >= 64 && b <= 127) return true // 100.64.0.0/10 carrier-grade NAT
     return false
   }
   if (type === 6) {
     const lower = ip.toLowerCase()
-    if (lower === '::1') return true // loopback
+    if (lower === '::1' || lower === '::') return true // loopback; '::' connects to localhost
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true // unique local fc00::/7
     if (/^fe[89ab]/.test(lower)) return true // link-local fe80::/10
     if (lower.startsWith('::ffff:')) {
       const v4 = lower.split(':').pop()!
       if (net.isIP(v4) === 4) return isPrivateOrReservedIp(v4)
+      // WHATWG URL rewrites ::ffff:127.0.0.1 to the hex form ::ffff:7f00:1
+      const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower)
+      if (m) {
+        const hi = parseInt(m[1], 16), lo = parseInt(m[2], 16)
+        return isPrivateOrReservedIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+      }
+      return true // other mapped forms — fail closed
     }
     return false
   }
@@ -44,12 +52,15 @@ function isPrivateOrReservedIp(ip: string): boolean {
  * are two separately-timed lookups against the same attacker-controlled
  * hostname, and a rebinding attacker can answer them differently.
  */
+export { isPrivateOrReservedIp }
+
 export async function assertSafeWebhookUrl(rawUrl: string): Promise<string> {
   const url = new URL(rawUrl)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('URL must be http or https')
   }
-  const hostname = url.hostname.toLowerCase()
+  // IPv6 literals come back bracketed ("[::1]"); strip so net.isIP sees them.
+  const hostname = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1')
   if (hostname === 'localhost' || hostname === '0.0.0.0') {
     throw new Error('That host is not allowed')
   }

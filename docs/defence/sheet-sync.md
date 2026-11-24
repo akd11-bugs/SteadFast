@@ -16,6 +16,7 @@ An org admin shares a Google Sheet with the one deployment-wide service account 
 | Import first, review after (`lib/leadImport.ts:277-290`) | Hold rows until a human approves them | A bad stage never blocks a lead. Problems persist as `JobRunIssue` rows (`lib/leadImport.ts:300-308`). |
 | Gemini suggests lazily when the review screen opens (`issues/route.ts:17-22`) | Calling the AI inside the sync | Keeps the cron fast. A suggestion is cached once made (`issues/route.ts:57-62`). |
 | Resolve goes through `applyStageChange` (`resolve/route.ts:14-21,73-78`) | A raw `prisma.lead.update` | Same Activity log and workflow rules as every other stage change. |
+| Resolve claims the issue with `updateMany where resolvedAt: null` before acting, and leaves the lead alone if it has left `new` (`resolve/route.ts`, `claim`) | Read `resolvedAt`, then write | Two clicks or two reviewers apply the change once. A rep's newer move (e.g. to onboarding) is never undone by an old review, so `wonAt` survives. If the stage change throws, the issue is reopened. Tested in `resolve/route.test.ts`. |
 | Shared `importLeadRows` for CSV and sheet (`lib/leadImport.ts:63-65`) | Separate importers | Both paths keep identical validation and dedupe. |
 | Concurrent per-org sync with `Promise.all` (`route.ts:199-202`) | Running orgs one after another | Each org has its own cursor. `syncOneSheet` catches its own errors (`route.ts:142-146`). |
 

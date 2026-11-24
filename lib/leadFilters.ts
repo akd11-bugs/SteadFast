@@ -1,8 +1,9 @@
+import { istMonth } from '@/lib/istDate'
+
 // Dashboard drill-down filters for /leads?filter=<key>. Built per request
 // from `now`: a module-level constant froze "this month" at server start.
 export function buildFilters(now: Date): Record<string, { where: Record<string, unknown>; label: string }> {
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+  const { start: monthStart, end: monthEnd } = istMonth(now)
   return {
     'partners-onboarded': {
       where: { type: 'partner', wonAt: { gte: monthStart, lte: monthEnd } },

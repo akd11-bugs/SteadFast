@@ -58,7 +58,7 @@ export function sheetSafeCell(value: string): string {
 export async function getSheetRows(spreadsheetId: string, range: string): Promise<string[][]> {
   const { token } = await getClient().getAccessToken()
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetPath(spreadsheetId)}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) })
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`Google Sheets API error (${res.status}): ${body}`)
@@ -79,6 +79,7 @@ export async function appendSheetRow(spreadsheetId: string, sheetName: string, r
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ values: [row.map(sheetSafeCell)] }),
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) {
     const body = await res.text()

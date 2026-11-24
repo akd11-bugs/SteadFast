@@ -65,10 +65,12 @@ export async function POST(req: Request) {
     },
   })
 
-  // Update lead's lastActivityAt
-  await prisma.lead.update({
-    where: { id: body.leadId },
-    data: { lastActivityAt: activity.date },
+  // Only ever move lastActivityAt forward: logging last week's call must not
+  // make a lead touched today look stale. A future date counts as now.
+  const touchedAt = activity.date > new Date() ? new Date() : activity.date
+  await prisma.lead.updateMany({
+    where: { id: lead.id, orgId: lead.orgId, OR: [{ lastActivityAt: null }, { lastActivityAt: { lt: touchedAt } }] },
+    data: { lastActivityAt: touchedAt },
   })
 
   return NextResponse.json({ activity })

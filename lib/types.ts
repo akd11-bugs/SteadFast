@@ -94,6 +94,7 @@ export interface Lead {
   updatedAt: Date | string
   lastActivityAt: Date | string | null
   activities?: Activity[]
+  _count?: { activities: number }
   skillRuns?: SkillRun[]
 }
 

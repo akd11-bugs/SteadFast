@@ -38,12 +38,18 @@ export async function POST(
   if (!issue) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (issue.resolvedAt) return NextResponse.json({ error: 'Issue already resolved' }, { status: 409 })
 
-  if (issue.kind === 'skip') {
-    const resolved = await prisma.jobRunIssue.update({
-      where: { id: issueId },
-      data: { resolvedBy: user.id, resolvedAt: new Date() },
+  // Claim the issue atomically: of two clicks (or two reviewers) only one
+  // gets count 1, so the stage change and its activity log happen once.
+  const claim = (data: { resolvedStage?: string } = {}) =>
+    prisma.jobRunIssue.updateMany({
+      where: { id: issueId, resolvedAt: null },
+      data: { ...data, resolvedBy: user.id, resolvedAt: new Date() },
     })
-    return NextResponse.json({ issue: resolved })
+  const alreadyResolved = () => NextResponse.json({ error: 'Issue already resolved' }, { status: 409 })
+
+  if (issue.kind === 'skip') {
+    if ((await claim()).count === 0) return alreadyResolved()
+    return NextResponse.json({ issue: { ...issue, resolvedBy: user.id, resolvedAt: new Date() } })
   }
 
   // kind === 'stage_unmapped'
@@ -70,17 +76,28 @@ export async function POST(
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await applyStageChange(
-    issue.leadId,
-    existing,
-    { stage, remark: 'Corrected during sheet sync review' },
-    { name: user.name },
-  )
+  // The import put the lead in 'new'. If someone has moved it since, that
+  // move is newer information than this review: applying the old choice
+  // could clear wonAt and the onboarding assignment. Close the issue, keep
+  // the lead as it is.
+  if (existing.stage !== 'new') {
+    if ((await claim({ resolvedStage: existing.stage })).count === 0) return alreadyResolved()
+    return NextResponse.json({ issue: { ...issue, resolvedStage: existing.stage }, stageUnchanged: true, currentStage: existing.stage })
+  }
 
-  const resolved = await prisma.jobRunIssue.update({
-    where: { id: issueId },
-    data: { resolvedStage: stage, resolvedBy: user.id, resolvedAt: new Date() },
-  })
+  if ((await claim({ resolvedStage: stage })).count === 0) return alreadyResolved()
+  try {
+    await applyStageChange(
+      issue.leadId,
+      existing,
+      { stage, remark: 'Corrected during sheet sync review' },
+      { name: user.name },
+    )
+  } catch (err) {
+    // Reopen so the reviewer can retry; the stage did not change.
+    await prisma.jobRunIssue.updateMany({ where: { id: issueId }, data: { resolvedStage: null, resolvedBy: null, resolvedAt: null } })
+    throw err
+  }
 
-  return NextResponse.json({ issue: resolved })
+  return NextResponse.json({ issue: { ...issue, resolvedStage: stage, resolvedBy: user.id } })
 }

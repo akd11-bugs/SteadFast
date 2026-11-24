@@ -17,32 +17,41 @@ function sign(payload: string) {
   return crypto.createHmac('sha256', secret()).update(payload).digest('hex')
 }
 
-// Token shape: "<userId>.<expiryMs>.<hmac>" — kept out of NextAuth entirely
-// (separate cookie, separate secret, separate path) so a real dashboard
-// session never grants rep access and vice versa.
-function makeToken(userId: string, expiresAt: number) {
-  const payload = `${userId}.${expiresAt}`
+// Ties a token to the PIN it was issued under: any PIN change (an admin
+// reset after a lost phone) makes every older token fail. Derived through the
+// HMAC so the cookie never carries any part of the bcrypt hash itself.
+function pinTag(pinHash: string) {
+  return sign(`pin:${pinHash}`).slice(0, 16)
+}
+
+// Token shape: "<userId>.<expiryMs>.<pinTag>.<hmac>" — kept out of NextAuth
+// entirely (separate cookie, separate secret, separate path) so a real
+// dashboard session never grants rep access and vice versa.
+function makeToken(userId: string, expiresAt: number, tag: string) {
+  const payload = `${userId}.${expiresAt}.${tag}`
   return `${payload}.${sign(payload)}`
 }
 
-function verifyToken(token: string): { userId: string; expiresAt: number } | null {
+function verifyToken(token: string): { userId: string; expiresAt: number; tag: string } | null {
   const parts = token.split('.')
-  if (parts.length !== 3) return null
-  const [userId, expiresAtRaw, mac] = parts
-  const payload = `${userId}.${expiresAtRaw}`
+  if (parts.length !== 4) return null
+  const [userId, expiresAtRaw, tag, mac] = parts
+  const payload = `${userId}.${expiresAtRaw}.${tag}`
   const expected = sign(payload)
   const a = Buffer.from(mac)
   const b = Buffer.from(expected)
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null
   const expiresAt = Number(expiresAtRaw)
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null
-  return { userId, expiresAt }
+  return { userId, expiresAt, tag }
 }
 
 export async function setRepSessionCookie(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { pinHash: true } })
+  if (!user?.pinHash) throw new Error('rep has no PIN')
   const expiresAt = Date.now() + MAX_AGE_SECONDS * 1000
   const store = await cookies()
-  store.set(COOKIE_NAME, makeToken(userId, expiresAt), {
+  store.set(COOKIE_NAME, makeToken(userId, expiresAt, pinTag(user.pinHash)), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -76,6 +85,7 @@ export async function getRepSessionUser(): Promise<SessionUser | null> {
     select: { id: true, name: true, email: true, role: true, orgId: true, isActive: true, pinHash: true },
   })
   if (!user || !user.isActive || !user.pinHash) return null
+  if (verified.tag !== pinTag(user.pinHash)) return null // PIN changed since login
 
   const visibleOrgIds = resolveVisibleOrgIds(user.orgId)
   // Rep sessions are only ever consumed by API routes (lib/session.ts's

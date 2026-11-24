@@ -541,14 +541,10 @@ export function LeadRecordView({
               />
             </Field>
             <Field label="Owner">
-              <Input
-                defaultValue={lead.ownerName}
-                className="h-8"
-                onBlur={(e) => {
-                  if (e.target.value !== lead.ownerName) patchLead({ ownerName: e.target.value })
-                }}
-                disabled={saving}
-              />
+              {/* Read-only: free text drifted from the real owner. Admins reassign from the Leads list. */}
+              <p className="h-8 flex items-center text-sm" title="Admins can reassign from the Leads list">
+                {lead.ownerName}
+              </p>
             </Field>
             <Field label="Expected close date">
               <Input

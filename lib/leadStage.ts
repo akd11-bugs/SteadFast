@@ -8,6 +8,7 @@ export type LeadWithRelations = Prisma.LeadGetPayload<{ include: { company: true
 type Lead = LeadWithRelations
 import { boardColumnFor, BOARD_COLUMN_LABELS, type OnboardingSubStage, type PendingSubStatus, type Stage } from '@/lib/types'
 import { evaluateStageRules } from '@/lib/workflow'
+import { getOnboardingStepDefinitions } from '@/lib/pipelineConfig'
 
 export interface StageChangeActor {
   name: string
@@ -85,8 +86,10 @@ export async function applyStageChange(
   // onboardedAt (set later, once the onboarding sub-pipeline finishes).
   const nextWonAt = enteringOnboarding ? new Date() : leavingOnboarding ? null : undefined
 
+  // Start on the org's first step by position: admins can delete or reorder
+  // steps, so a hard-coded key could point at a step that no longer exists.
   const nextOnboardingSubStage: OnboardingSubStage | null | undefined = enteringOnboarding
-    ? 'document_submission'
+    ? (((await getOnboardingStepDefinitions(existing.orgId))[0]?.key ?? 'document_submission') as OnboardingSubStage)
     : leavingOnboarding
       ? null
       : undefined

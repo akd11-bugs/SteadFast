@@ -184,6 +184,16 @@ describe('POST /api/activities — clients cannot forge system activity types', 
     const res = await activitiesRoute.POST(jsonReq({ leadId: 'lead-1', type: 'note', date: 'garbage' }))
     expect(res.status).toBe(400)
   })
+
+  it('a backdated activity only moves lastActivityAt forward', async () => {
+    results.set('lead.findFirst', { id: 'lead-1', orgId: ORG })
+    results.set('activity.create', { id: 'a1', date: new Date('2026-01-01T00:00:00Z') })
+    const res = await activitiesRoute.POST(jsonReq({ leadId: 'lead-1', type: 'call', date: '2026-01-01' }))
+    expect(res.status).toBe(200)
+    expect(calls.some(c => c.model === 'lead' && c.op === 'update')).toBe(false)
+    const upd = calls.find(c => c.model === 'lead' && c.op === 'updateMany')!
+    expect(upd.args.where).toMatchObject({ id: 'lead-1', orgId: ORG, OR: [{ lastActivityAt: null }, { lastActivityAt: { lt: new Date('2026-01-01T00:00:00Z') } }] })
+  })
 })
 
 describe('DELETE /api/leads/[id] — guard must precede the delete', () => {
@@ -305,6 +315,33 @@ describe('onboarding sub-stage changes are auditable', () => {
     })
     await leadsRoute.PATCH(jsonReq({ onboardingSubStage: 'document_submission' }), params('lead-1'))
     expect(calls.some(c => c.model === 'activity' && c.op === 'create')).toBe(false)
+  })
+
+  it('400s a sub-stage change on a lead that is not in onboarding', async () => {
+    results.set('onboardingStepDefinition.findMany', [{ key: 'final_onboarded', label: 'Onboarded' }])
+    results.set('stageDefinition.findMany', [{ key: 'new', label: 'New' }])
+    results.set('lead.findFirst', {
+      id: 'lead-1', orgId: ORG, stage: 'new', onboardingSubStage: null,
+      wonAt: null, onboardedAt: null, pendingSubStatus: null, customFieldsJson: null, companyId: 'c1',
+    })
+    const res = await leadsRoute.PATCH(jsonReq({ onboardingSubStage: 'final_onboarded' }), params('lead-1'))
+    expect(res.status).toBe(400)
+    expect(calls.some(c => c.model === 'lead' && c.op === 'update')).toBe(false)
+  })
+})
+
+describe('PATCH /api/leads/[id] — owner name', () => {
+  it('ignores a free-text ownerName so it cannot drift from ownerId', async () => {
+    results.set('onboardingStepDefinition.findMany', [])
+    results.set('stageDefinition.findMany', [{ key: 'new', label: 'New' }])
+    results.set('lead.findFirst', {
+      id: 'lead-1', orgId: ORG, stage: 'new', onboardingSubStage: null,
+      wonAt: null, onboardedAt: null, pendingSubStatus: null, customFieldsJson: null, companyId: 'c1',
+    })
+    await leadsRoute.PATCH(jsonReq({ ownerName: 'Priya', notes: 'x' }), params('lead-1'))
+    const upd = calls.find(c => c.model === 'lead' && c.op === 'update')
+    expect(upd).toBeDefined()
+    expect((upd!.args.data as Record<string, unknown>).ownerName).toBeUndefined()
   })
 })
 

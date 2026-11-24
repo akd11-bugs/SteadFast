@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { toolPrefix, proxyTool } from '@/lib/mcp/connections'
 
+// Public answer for treg.to so tests never hit real DNS.
+vi.mock('dns/promises', () => ({ default: { lookup: async () => ({ address: '93.184.216.34', family: 4 }) } }))
+
 describe('toolPrefix', () => {
   it('lowercases and replaces non-alphanumeric runs with a single underscore', () => {
     expect(toolPrefix('treg')).toBe('treg')
@@ -89,5 +92,18 @@ describe('proxyTool', () => {
 
     const tool = proxyTool('treg', 'https://treg.to/mcp/', null, { name: 'search' })
     await expect(tool.run({}, { orgId: 'org-1' })).rejects.toThrow('HTTP 404')
+  })
+
+  it('refuses an internal address without calling fetch', async () => {
+    const tool = proxyTool('evil', 'http://169.254.169.254/latest/', null, { name: 'x' })
+    await expect(tool.run({}, { orgId: 'org-1' })).rejects.toThrow('not allowed')
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses to follow a redirect', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 302, json: async () => ({}) })
+    const tool = proxyTool('treg', 'https://treg.to/mcp/', null, { name: 'search' })
+    await expect(tool.run({}, { orgId: 'org-1' })).rejects.toThrow('redirect')
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].redirect).toBe('manual')
   })
 })

@@ -16,6 +16,7 @@ import { redirect } from 'next/navigation'
 import { requireUser, resolveSession, leadScope, isOperations } from '@/lib/session'
 import { LandingPage } from '@/components/marketing/LandingPage'
 import { getPendingSubStatusDefinitions, getStageDefinitions, buildBoardColumns } from '@/lib/pipelineConfig'
+import { istMonth } from '@/lib/istDate'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,12 +61,9 @@ export default async function DashboardPage() {
   ])
 
   const totalLeads = leads.length
-  const wonThisMonth = leads.filter((l) => {
-    if (!l.wonAt) return false
-    const d = new Date(l.wonAt)
-    const now = new Date()
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  })
+  const { start: monthStart, end: monthEnd } = istMonth()
+  const inCurrentMonth = (d: Date | string | null) => !!d && new Date(d) >= monthStart && new Date(d) <= monthEnd
+  const wonThisMonth = leads.filter((l) => inCurrentMonth(l.wonAt))
   const openPipelineValue = leads
     .filter((l) => l.stage !== 'onboarding' && l.stage !== 'not_interested')
     .reduce((sum, l) => sum + l.estimatedVolume, 0)
@@ -132,10 +130,6 @@ export default async function DashboardPage() {
 
   // BD summary — partners/merchants onboarded this month, and what's forecast
   // to close by month end. Mirrors the manual WhatsApp BD report format.
-  const today = new Date()
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999)
-  const inCurrentMonth = (d: Date | null) => !!d && d >= monthStart && d <= monthEnd
 
   function bdMetricsFor(rows: typeof leads) {
     // wonAt (set the moment sales marks the deal won), not onboardedAt (set

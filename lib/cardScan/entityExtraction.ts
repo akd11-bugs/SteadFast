@@ -62,6 +62,7 @@ export async function extractCardEntities(text: string): Promise<CardEntities> {
       document: { type: 'PLAIN_TEXT', content: trimmed },
       encodingType: 'UTF8',
     }),
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) {
     const body = await res.text()

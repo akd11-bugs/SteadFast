@@ -84,6 +84,7 @@ export function SyncReviewPanel({ jobRunId }: { jobRunId: string }) {
         return
       }
       setIssues((prev) => (prev ? prev.filter((i) => i.id !== issue.id) : prev))
+      if (data.stageUnchanged) setError(`That lead had already moved to "${data.currentStage}", so its stage was left as is.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

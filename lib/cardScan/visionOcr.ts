@@ -53,6 +53,7 @@ export async function recognizeCardText(imageBytes: Buffer): Promise<VisionOcrRe
         },
       ],
     }),
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) {
     const body = await res.text()

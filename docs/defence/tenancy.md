@@ -42,7 +42,7 @@ record by id returns "not found", as if it never existed.
 | Admin of another org | Revoke org A's invite or reset an org A rep's PIN | Both look up with `orgId: { in: user.visibleOrgIds }` and 404 (`app/api/invites/[id]/route.ts:14-15`, `app/api/users/[id]/pin/route.ts:16-17`). |
 | Admin of another org | Lock out org A's rep by sharing a name | Lookup is per org (`lib/repAuth.ts:28-30`). Tested: `test/integration.test.ts:129`. |
 | Holder of a leaked rep link | Sign in as a rep | Needs the rep's exact name and current PIN too. The slug alone is public by design. |
-| Holder of a stolen `rep_session` cookie | Act as the rep | Works until expiry, max 10 h (`lib/repSession.ts:8`). No server-side revocation list. Deactivating the user or clearing the PIN ends it (`lib/repSession.ts:78`). |
+| Holder of a stolen `rep_session` cookie | Act as the rep | Works until expiry, max 10 h (`lib/repSession.ts:8`). Deactivating the user, clearing the PIN, or **resetting** the PIN ends it: the token carries an HMAC tag of the `pinHash` it was issued under (`pinTag`, checked in `getRepSessionUser`; `lib/repSession.test.ts`). |
 
 ### Residual risks (honest)
 
@@ -71,7 +71,7 @@ record by id returns "not found", as if it never existed.
 | `User.role`, `User.isActive` | string, bool (`prisma/schema.prisma:382-383`) | Read by `leadScope` and every session check. |
 | `User.pinHash`, `pinFailedAttempts`, `pinLockedUntil` | (`prisma/schema.prisma:400-402`) | Rep PIN, bcrypt cost 10 (`app/api/users/[id]/pin/route.ts:26`). Separate counters from the dashboard login (`lib/repAuth.ts:12-14`). |
 | `@@unique([orgId, name])` on User | (`prisma/schema.prisma:410`) | Rep login resolves by name, so a name must be unique inside an org. |
-| `rep_session` cookie | `"<userId>.<expiryMs>.<hmac>"` (`lib/repSession.ts:20-26`), httpOnly, `sameSite: lax`, `secure` in prod, path `/`, 10 h (`lib/repSession.ts:45-55`) | Path `/` so it reaches `/api/rep/*` (`lib/repSession.ts:49-52`). No DB row: stateless. |
+| `rep_session` cookie | `"<userId>.<expiryMs>.<pinTag>.<hmac>"` (`lib/repSession.ts`, `makeToken`); `pinTag` is the first 16 hex of HMAC(`pin:<pinHash>`), so no part of the bcrypt hash is in the cookie, httpOnly, `sameSite: lax`, `secure` in prod, path `/`, 10 h (`lib/repSession.ts:45-55`) | Path `/` so it reaches `/api/rep/*` (`lib/repSession.ts:49-52`). No DB row: stateless. |
 | `SessionUser` | in-memory object (`lib/session.ts:13-32`) | Built per request by `hydrate`, cached with React `cache()` (`lib/session.ts:42-55`). |
 
 ## 5. Where it fails

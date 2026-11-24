@@ -32,10 +32,14 @@ export function LeadDetailDialog({
     if (!open) return
     setLead(null)
     setLoadFailed(false)
+    // Ignore a slow reply for a lead the user already closed, or it would
+    // replace the lead now open and edits would save to the wrong one.
+    let stale = false
     fetch(`/api/leads/${leadId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => (data?.lead ? setLead(data.lead) : setLoadFailed(true)))
-      .catch(() => setLoadFailed(true))
+      .then((data) => { if (!stale) (data?.lead ? setLead(data.lead) : setLoadFailed(true)) })
+      .catch(() => { if (!stale) setLoadFailed(true) })
+    return () => { stale = true }
   }, [open, leadId])
 
   if (!open) return null

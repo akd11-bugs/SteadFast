@@ -252,14 +252,15 @@ function formatDateForCsv(d: Date | string): string {
 
 async function runPython(args: string[]): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('python3', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    // timeout: a hung script is killed (SIGTERM) instead of holding the request forever.
+    const proc = spawn('python3', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 })
     let stdout = ''
     let stderr = ''
     proc.stdout.on('data', (d) => (stdout += d.toString()))
     proc.stderr.on('data', (d) => (stderr += d.toString()))
     proc.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(`python exited ${code}: ${stderr.trim() || stdout.trim()}`))
+        reject(new Error(code === null ? 'python timed out after 30s' : `python exited ${code}: ${stderr.trim() || stdout.trim()}`))
         return
       }
       try {
@@ -361,7 +362,8 @@ async function runLlmSkill(
     userQuestion: input.userQuestion,
   })
 
-  const client = new Anthropic()
+  // SDK default is 10 min x 3 tries; one minute and one retry is plenty for a report.
+  const client = new Anthropic({ timeout: 60_000, maxRetries: 1 })
   const msg = await client.messages.create({
     model: ANTHROPIC_MODEL,
     max_tokens: 4096,

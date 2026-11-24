@@ -35,13 +35,15 @@ export function CompanyPicker({
       setResults([])
       return
     }
+    let stale = false // an older, slower search must not overwrite newer results
     debounceRef.current = setTimeout(() => {
       fetch(`/api/companies?q=${encodeURIComponent(q)}`)
         .then((r) => r.json())
-        .then((data) => setResults(data.companies ?? []))
-        .catch(() => setResults([]))
+        .then((data) => { if (!stale) setResults(data.companies ?? []) })
+        .catch(() => { if (!stale) setResults([]) })
     }, 250)
     return () => {
+      stale = true
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [value])

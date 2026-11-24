@@ -98,16 +98,19 @@ export function CommandPalette({ user }: { user: SessionUser }) {
       setLeads([])
       return
     }
+    let stale = false // an older, slower search must not overwrite newer results
     debounceRef.current = setTimeout(() => {
       Promise.all([
         fetch(`/api/companies?q=${encodeURIComponent(q)}`).then((r) => r.json()),
         fetch(`/api/leads/search?q=${encodeURIComponent(q)}`).then((r) => r.json()),
       ]).then(([companyData, leadData]) => {
+        if (stale) return
         setCompanies(companyData.companies ?? [])
         setLeads(leadData.leads ?? [])
-      })
+      }).catch(() => {})
     }, 250)
     return () => {
+      stale = true
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [query])

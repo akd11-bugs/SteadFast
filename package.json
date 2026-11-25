@@ -60,7 +60,7 @@
     "react-dom": "^19.0.0",
     "react-is": "^19.0.0",
     "recharts": "^3.10.1",
-    "tailwind-merge": "^2.6.0",
+    "tailwind-merge": "^3.7.0",
     "tailwindcss-animate": "^1.0.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zustand": "^5.0.2"

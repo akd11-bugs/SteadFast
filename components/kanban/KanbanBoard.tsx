@@ -22,7 +22,8 @@ import { StageChangeDialog } from '@/components/leads/StageChangeDialog'
 import type { Lead, BoardColumnKey } from '@/lib/types'
 import { boardColumnFor } from '@/lib/types'
 import { usePipelineConfig } from '@/lib/hooks/usePipelineConfig'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 
 interface KanbanBoardProps {
   initialLeads: Lead[]
@@ -35,6 +36,7 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
   const [detailLead, setDetailLead] = useState<Lead | null>(null)
   const [stageChange, setStageChange] = useState<{ leadId: string; target: BoardColumnKey; targetLabel: string } | null>(null)
   const { columns, pendingSubStatuses, loading: columnsLoading } = usePipelineConfig()
+  const [search, setSearch] = useState('')
 
   function applyUpdatedLead(updated: Lead) {
     setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)))
@@ -68,7 +70,10 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
     for (const column of columns) {
       map.set(column.key, [])
     }
+    // Same fields as the Leads table search, plus phone.
+    const q = search.trim().toLowerCase()
     for (const lead of leads) {
+      if (q && !`${lead.company.name} ${lead.person?.name ?? ''} ${lead.email} ${lead.phone ?? ''} ${lead.industry ?? ''}`.toLowerCase().includes(q)) continue
       const list = map.get(boardColumnFor(lead))
       if (list) list.push(lead)
     }
@@ -77,7 +82,7 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
       list.sort((a, b) => a.position - b.position)
     }
     return map
-  }, [leads, columns])
+  }, [leads, columns, search])
 
   function handleDragStart(e: DragStartEvent) {
     const lead = leads.find((l) => l.id === e.active.id)
@@ -117,8 +122,28 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
     )
   }
 
+  const matchCount = search.trim() ? [...leadsByColumn.values()].reduce((n, l) => n + l.length, 0) : null
+
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by company, POC, email, phone…"
+            aria-label="Search leads on the board"
+            className="pl-9 h-9"
+          />
+        </div>
+        {matchCount !== null && (
+          <span className="text-sm text-muted-foreground" aria-live="polite">
+            {matchCount} match{matchCount === 1 ? '' : 'es'}
+          </span>
+        )}
+      </div>
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="kanban-scroll overflow-x-auto pb-4">
           <div className="flex gap-3 min-w-max">

@@ -65,7 +65,7 @@ Every claim cites code. If the code changes, the brief changes in the same commi
 | 16 | Timeouts: Anthropic 60 s × 1 retry, Python 30 s, Google Vision / Language / Sheets 15 s | SDK default could hold a request ~30 min; a hung script never ended; a hung Sheets call could outlive the 10-min sync lock | `lib/skills/runner.ts`, `lib/cardScan/*`, `lib/googleSheets.ts` |
 | 17 | SSRF guard blocks `::`, `100.64.0.0/10`, hex-form IPv4-mapped IPv6, and bracketed IPv6 literals | `::` reaches localhost; URL parsing turns `::ffff:127.0.0.1` into `::ffff:7f00:1`, which slipped through | `lib/ssrfGuard.ts`; `lib/ssrfGuard.test.ts` |
 
-Residual: the skill-run limit is in-memory per process (`shortcut:` comment); IST is fixed for every org (`shortcut:` in `lib/istDate.ts`); `app/calendar` still builds its month grid in server time; `better-auth` (under `@neondatabase/auth`) advisories need a breaking Neon Auth upgrade; existing rep sessions are signed out once on deploy (old token format).
+Residual: the skill-run limit is in-memory per process (`shortcut:` comment); IST is fixed for every org (`shortcut:` in `lib/istDate.ts`); `better-auth` (under `@neondatabase/auth`) advisories need a breaking Neon Auth upgrade; existing rep sessions are signed out once on deploy (old token format).
 
 ## Open, not yet fixed (next batch)
 
@@ -76,4 +76,4 @@ Residual: the skill-run limit is in-memory per process (`shortcut:` comment); IS
 - **SMTP settings:** an admin can point the host at their own server and receive the password a previous admin saved; any host/port is accepted (SSRF).
 - **Invites never expire**; public intake has no duplicate check.
 - **Company edit/delete has no role check** (product decision pending).
-- **From the 2026-11-23 audit, still open:** items 18–20 (sync default owner not checked for same org; dead code and unused deps; test gaps). `better-auth` advisories need the Neon Auth major upgrade.
+- **From the 2026-11-23 audit, still open:** items 19–20 (dead code and unused deps; test gaps). Item 18 and the calendar's server-time grid were fixed 2026-11-26. `better-auth` advisories need the Neon Auth major upgrade.

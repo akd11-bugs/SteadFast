@@ -197,13 +197,19 @@ async function buildOrgSources(): Promise<SheetSource[]> {
 
   const owners = await prisma.user.findMany({
     where: { id: { in: connectors.map((c) => c.defaultOwnerUserId) } },
-    select: { id: true, name: true },
+    select: { id: true, name: true, orgId: true, isActive: true },
   })
   const ownerById = new Map(owners.map((o) => [o.id, o]))
 
   return connectors.flatMap((c): SheetSource[] => {
-    const defaultOwner = ownerById.get(c.defaultOwnerUserId)
-    if (!defaultOwner) return [] // configured owner was since deleted — skip rather than fail the whole run
+    const o = ownerById.get(c.defaultOwnerUserId)
+    // Checked at save time too, but the owner can later be deleted, deactivated
+    // or move to another workspace — never hand this org's leads to them.
+    if (!o || o.orgId !== c.orgId || !o.isActive) {
+      console.warn(`[sheet-sync] org ${c.orgId}: default owner missing, inactive or in another org; skipped`)
+      return []
+    }
+    const defaultOwner = { id: o.id, name: o.name }
 
     return [{
       label: `org:${c.orgId}`,

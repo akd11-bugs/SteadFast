@@ -34,7 +34,7 @@ An org admin shares a Google Sheet with the one deployment-wide service account 
 | Sales rep | Configure the connector | 403. Admin only (`org-sheet-connector/route.ts:29,41,114`). |
 | Admin of another org | Read our job run or issues by guessing the id | `findFirst` with `orgId in visibleOrgIds`, and 404 if not found (`issues/route.ts:33-37`, `resolve/route.ts:35-38,67-71`). `visibleOrgIds` is only the user's own org (`lib/session.ts:35-37`). |
 | Admin of another org | Bind our sheet to their org | `sheetId @unique` (`prisma/schema.prisma:107`) gives a 409 (`org-sheet-connector/route.ts:104-106`). Probing is capped at 20 per hour (`route.ts:16,43-49`), but the limiter is in memory and per process (`lib/rateLimit.ts:3-16`). |
-| Admin of another org | Set a default owner from our org | The owner must be in their own org (`org-sheet-connector/route.ts:70-73`). |
+| Admin of another org | Set a default owner from our org | The owner must be in their own org when saved (`org-sheet-connector/route.ts:70-73`), and again at every sync: an owner who later moved to another workspace or was deactivated makes the sync skip that org (`route.ts:241`). |
 | Someone who can edit the connected sheet | Inject rows | Rows land only in the connector's org (`route.ts:121`, `lib/leadImport.ts:264-275`). The owner column only resolves users in that org (`route.ts:79-85`). |
 | Sheet editor | Prompt-inject Gemini through a stage cell | The output must be one of the org's stage keys (`lib/stageSuggest.ts:92-94`). A human still picks the stage, and the server re-validates it (`resolve/route.ts:62-65`). |
 | Holder of a leaked cron secret | Trigger syncs at will | The request has no body or params. It can only run the normal sync for all orgs (`route.ts:193-202`). There is no rate limit on this route. |
@@ -63,7 +63,7 @@ An org admin shares a Google Sheet with the one deployment-wide service account 
 |---|---|---|
 | Sheet not shared, or wrong ID, at setup | A clear 400 message naming the service account email (`org-sheet-connector/route.ts:82-90`) | Server log (`:85`) |
 | Sharing removed later, or Google API error | No new leads. That run is marked failure (`route.ts:142-145`) | Ops page shows a `failure` badge but not the error text (`app/settings/ops/page.tsx:106,135-137`). The error is in `JobRun.error` and the server log (`route.ts:144`). The workflow fails only on HTTP ≥400 (`yml:23-25`), and per-org failures still return 200 (`route.ts:204`), so GitHub stays green. |
-| Default owner deleted | That org silently stops syncing (`route.ts:164`) | No `JobRun` is written. Only a stale `lastSyncedAt` shows it. |
+| Default owner deleted, deactivated or moved to another org | That org stops syncing (`route.ts:241`) | No `JobRun` is written; a `[sheet-sync]` warning is logged and `lastSyncedAt` goes stale. |
 | Rows deleted above the cursor | The run rescans the whole sheet; existing leads come back as `skip` duplicate issues in that one run's review | Expected noise, once. Tested. |
 | Rows sorted (same count) or inserted mid-sheet | New rows can still be skipped, or old rows re-run | Not detected (`shortcut:` in `route.ts`). Upgrade: key the cursor on a stable column. |
 | Crash partway through a run | Leads created so far stay. The cursor does not advance (`route.ts:131` is after the import loop) | The next run re-reads those rows. Dedupe drops most of them, and duplicate `skip` issues appear. |

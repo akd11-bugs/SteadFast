@@ -78,7 +78,7 @@ beforeEach(() => {
   finishJobRunMock.mockReset()
   leadFieldDefinitionFindManyMock.mockReset()
 
-  userFindManyMock.mockResolvedValue([{ id: 'org-a-owner', name: 'Org A Owner' }])
+  userFindManyMock.mockResolvedValue([{ id: 'org-a-owner', name: 'Org A Owner', orgId: 'org-a', isActive: true }])
   cursorFindUniqueMock.mockResolvedValue(null)
   cursorUpsertMock.mockResolvedValue({})
   cursorCreateManyMock.mockResolvedValue({ count: 0 })
@@ -342,8 +342,8 @@ describe('POST /api/cron/sync-leads-sheet', () => {
       { orgId: 'org-b', sheetId: 'org-b-sheet', sheetRange: 'Sheet1', defaultOwnerUserId: 'org-b-owner' },
     ])
     userFindManyMock.mockResolvedValue([
-      { id: 'org-a-owner', name: 'Org A Owner' },
-      { id: 'org-b-owner', name: 'Org B Owner' },
+      { id: 'org-a-owner', name: 'Org A Owner', orgId: 'org-a', isActive: true },
+      { id: 'org-b-owner', name: 'Org B Owner', orgId: 'org-b', isActive: true },
     ])
     getSheetRowsMock.mockResolvedValue([
       ['Company', 'Email'],
@@ -370,5 +370,22 @@ describe('POST /api/cron/sync-leads-sheet', () => {
     const body = await res.json()
 
     expect(body.results).toEqual([])
+  })
+
+  it('skips a connector whose default owner moved to another org or was deactivated, so no lead goes to them', async () => {
+    orgSheetConnectorFindManyMock.mockResolvedValue([
+      { orgId: 'org-a', sheetId: 'org-a-sheet', sheetRange: 'Leads', defaultOwnerUserId: 'moved' },
+      { orgId: 'org-a', sheetId: 'org-a-sheet', sheetRange: 'Leads', defaultOwnerUserId: 'inactive' },
+    ])
+    userFindManyMock.mockResolvedValue([
+      { id: 'moved', name: 'Moved', orgId: 'org-b', isActive: true },
+      { id: 'inactive', name: 'Gone', orgId: 'org-a', isActive: false },
+    ])
+
+    const body = await (await POST(req('test-key'))).json()
+
+    expect(body.results).toEqual([])
+    expect(getSheetRowsMock).not.toHaveBeenCalled()
+    expect(importLeadRowsMock).not.toHaveBeenCalled()
   })
 })
